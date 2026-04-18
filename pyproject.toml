@@ -1,0 +1,100 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "contingency-bench"
+version = "0.0.0"
+description = "Benchmark runner for OperantKit experimental kit: timing precision, LLM-as-subject performance, matching law fits."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "OperantKit contributors" },
+]
+keywords = [
+  "behavior-analysis",
+  "operant-conditioning",
+  "matching-law",
+  "llm-benchmark",
+  "policy-compression",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering",
+]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+llm = [
+  "anthropic>=0.39",
+]
+test = [
+  "pytest>=8",
+  "pytest-cov",
+  "hypothesis>=6",
+]
+dev = [
+  "contingency-bench[test]",
+  "mypy>=1.10",
+  "ruff>=0.5",
+]
+
+[project.scripts]
+contingency-bench = "contingency_bench.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/OperantKit"
+Repository = "https://github.com/OperantKit/contingency-bench"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contingency_bench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+  "--strict-markers",
+  "--strict-config",
+  "-ra",
+]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "llm_api: requires anthropic SDK and live API credentials (skipped by default)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["contingency_bench"]
+
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if TYPE_CHECKING:",
+  "raise NotImplementedError",
+  "\\.\\.\\.",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "RET"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "anthropic", "anthropic.*"]
+ignore_missing_imports = true
