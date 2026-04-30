@@ -5,12 +5,10 @@ Maximizes ``E[Reward] - beta * KL(pi || pi_0)`` where ``pi_0`` is a default
 prior, producing the undermatching that is empirically observed in many
 biological subjects on concurrent VI schedules.
 
-This module is an inlined port of the agent that lived under
-``operantkit_models.methods.policy_compression`` in the v0 monorepo. It is
-duplicated here (rather than imported from a sibling package) so that
-``contingency-bench`` has zero hard runtime dependencies on other in-monorepo
-packages — see README "Local dependency notes" for the swap-in path once the
-shared models package is published.
+This module is inlined here (rather than imported from a sibling package)
+so that ``contingency-bench`` has zero hard runtime dependencies on other
+in-monorepo packages — see README "Local dependency notes" for the swap-in
+path once upstream modules are published.
 
 References
 ----------

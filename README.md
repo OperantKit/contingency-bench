@@ -1,5 +1,7 @@
 # contingency-bench
 
+:jp: [日本語版 README](README.ja.md)
+
 Benchmark runner for the OperantKit experimental kit: timing precision,
 LLM-as-subject performance, and matching-law parameter recovery.
 
@@ -59,18 +61,17 @@ export ANTHROPIC_API_KEY=...
 
 ## Local dependency notes
 
-The original v0 runner imported its Q-learning agent from `operantkit_models`
-and its GML estimator from `session_analyzer`. Those packages are part of the
-same monorepo but are not yet published to PyPI. To keep `contingency-bench`
-installable as a standalone package, both modules are **inlined** here:
+The Q-learning agent and the GML estimator originate in sibling packages
+in the same monorepo but are not yet published to PyPI. To keep
+`contingency-bench` installable as a standalone package, both modules are
+**inlined** here:
 
 - `contingency_bench.policy_compression.PolicyCompressionAgent`
-  (formerly `operantkit_models.methods.policy_compression`)
 - `contingency_bench.matching.estimate_matching_parameters`
-  (formerly `session_analyzer.analytics.matching`)
+  (mirrors `session_analyzer.analytics.matching`)
 
-When the shared models package is published, the inlined copies should be
-replaced with re-exports from upstream. The public symbols stay the same.
+When the upstream modules are published, the inlined copies should be
+replaced with re-exports. The public symbols stay the same.
 
 ## LLM dependency notes
 
