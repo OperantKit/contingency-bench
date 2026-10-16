@@ -1,0 +1,37 @@
+# contingency-bench
+
+> Benchmark that places an LLM as the subject of a two-alternative concurrent variable-interval procedure, fits the generalized matching law (sensitivity from unreinforced and from total responses, bias), and maps the sensitivity onto the beta of a policy-compression learning agent; runs offline with a simulated subject.
+
+contingency-bench is part of OperantKit, a set of Python/Rust packages for designing and running operant and respondent conditioning experiments (reinforcement schedules, session recording, analysis). Use it to measure how an LLM's choices track relative reinforcement, with exposure equated across conditions and a reference model for interpreting the result.
+
+## Install
+
+```bash
+pip install git+https://github.com/OperantKit/contingency-bench
+pip install 'contingency-bench[llm] @ git+https://github.com/OperantKit/contingency-bench'   # live Anthropic API runs
+```
+
+## Minimal example
+
+```python
+import numpy as np
+from contingency_bench import run_benchmark
+
+np.random.seed(0)
+result = run_benchmark(["mock-subject"], use_mock=True, steps_per_condition=200,
+                       mock_betas={"mock-subject": 0.2})[0]
+print(round(result.sensitivity_unreinforced, 2), round(result.estimated_beta, 2))  # 0.38 0.17
+```
+
+CLI: `contingency-bench --mock --steps 50`. Live runs use `APILLMClient`, which calls the Anthropic API with `ANTHROPIC_API_KEY`.
+
+## Docs
+
+- [README](https://github.com/OperantKit/contingency-bench/blob/main/README.md): scope, 30-second example, why not to hand-roll the benchmark, references
+- [AGENTS.md](https://github.com/OperantKit/contingency-bench/blob/main/AGENTS.md): when to use this package and what not to do
+
+## Related packages
+
+- [session-analyzer](https://github.com/OperantKit/session-analyzer): the generalized-matching estimator mirrored here, plus other analyses (`pip install session-analyzer`)
+- [contingency-py](https://github.com/OperantKit/contingency-py): time-based schedule engine with Fleshler-Hoffman VI values (`pip install contingency-py`)
+- [contingency-rs](https://github.com/OperantKit/contingency-rs): Rust engine and hardware-in-the-loop bridge

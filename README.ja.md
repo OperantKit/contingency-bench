@@ -39,6 +39,35 @@ contingency-bench --mock --steps 50 --verbose
 contingency-bench --mock --model claude-3-5-sonnet --model gpt-4o --steps 100
 ```
 
+## 30 秒で動く例
+
+```bash
+pip install git+https://github.com/OperantKit/contingency-bench
+```
+
+LLM の代わりに模擬被験体（`beta = 0.2` の方策圧縮 Q 学習エージェント）でベンチマークを走らせる。API キーは要らない:
+
+```python
+import numpy as np
+from contingency_bench import run_benchmark
+
+np.random.seed(0)  # 模擬セッションは numpy の大域乱数生成器を使う
+results = run_benchmark(["mock-subject"], use_mock=True, steps_per_condition=200,
+                        mock_betas={"mock-subject": 0.2})
+r = results[0]
+print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round(r.bias, 2), round(r.estimated_beta, 2))
+# 0.38 0.82 -0.18 0.17
+```
+
+表示される値は、強化されなかった反応から求めた一般化対応法則の感度、全反応から求めた感度、偏り (log b)、感度から逆算した `beta` である。逆算した 0.17 は模擬に使った 0.2 に近い。`use_mock=False` にすると、同じ手続きで各試行を Anthropic API 経由で Claude のモデルに提示する（`pip install 'contingency-bench[llm]'`、`ANTHROPIC_API_KEY`）。
+
+## 自作の 50 行の LLM ベンチマークでは足りない理由
+
+- **偏りの少ない反応指標で対応法則を当てはめる.** 感度は全反応からだけでなく、強化されなかった反応からも推定する（全反応は強化率が高いと推定を上に偏らせる。Davison, 2021）。強化比の異なる 5 条件にわたって当てはめる。
+- **経験量をそろえる.** `equate_training_steps` はどの条件にも同じ試行数を与える (Johnson et al., 2022)。感度の差が訓練量の差にならない。
+- **結果を解釈するための参照モデル.** `estimate_beta_from_sensitivity` は当てはめた感度を方策圧縮エージェント (Lai & Gershman, 2021) の `beta` に対応づけるので、モデルの対応の度合いを 1 つのパラメータで言える。
+- **API なしで動く.** `MockLLMClient` と CLI の `--mock` で、テストや CI 向けにパイプライン全体をオフラインで走らせられる。Anthropic SDK は実際のクライアントを作るときにだけ import する。
+
 ## インストール
 
 ```bash

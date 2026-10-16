@@ -39,6 +39,35 @@ contingency-bench --mock --steps 50 --verbose
 contingency-bench --mock --model claude-3-5-sonnet --model gpt-4o --steps 100
 ```
 
+## 30-second example
+
+```bash
+pip install git+https://github.com/OperantKit/contingency-bench
+```
+
+Run the benchmark on a simulated subject (a policy-compression Q-learner with `beta = 0.2`) instead of an LLM, so no API key is needed:
+
+```python
+import numpy as np
+from contingency_bench import run_benchmark
+
+np.random.seed(0)  # the simulated sessions draw from numpy's global generator
+results = run_benchmark(["mock-subject"], use_mock=True, steps_per_condition=200,
+                        mock_betas={"mock-subject": 0.2})
+r = results[0]
+print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round(r.bias, 2), round(r.estimated_beta, 2))
+# 0.38 0.82 -0.18 0.17
+```
+
+The printed values are the generalized-matching sensitivity from unreinforced responses, the sensitivity from total responses, the bias (log b), and the `beta` recovered from the sensitivity; the recovered 0.17 is close to the simulated 0.2. With `use_mock=False` the same procedure presents each trial to a Claude model through the Anthropic API (`pip install 'contingency-bench[llm]'`, `ANTHROPIC_API_KEY`).
+
+## Why not a 50-line hand-written LLM benchmark?
+
+- **Matching-law fit with the less biased response measure.** Sensitivity is estimated from unreinforced responses as well as from total responses (total responses bias the estimate upward at high reinforcer rates; Davison, 2021), across five reinforcement-ratio conditions.
+- **Equated exposure.** `equate_training_steps` gives every condition the same number of trials (Johnson et al., 2022), so differences in sensitivity are not differences in training.
+- **A reference model to interpret the result.** `estimate_beta_from_sensitivity` maps a fitted sensitivity onto the `beta` of a policy-compression agent (Lai & Gershman, 2021), so a model's matching can be stated as one parameter.
+- **Runs without an API.** `MockLLMClient` and the `--mock` CLI flag run the whole pipeline offline for tests and CI; the Anthropic SDK is imported only when a live client is created.
+
 ## Installation
 
 ```bash
