@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "contingency-bench"
+authors:
+  - name: "OperantKit contributors"
+repository-code: "https://github.com/OperantKit/contingency-bench"
+license: MIT
+abstract: "Benchmark runner for OperantKit experimental kit: timing precision, LLM-as-subject performance, matching law fits."
