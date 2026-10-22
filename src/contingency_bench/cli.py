@@ -9,16 +9,17 @@ from collections.abc import Sequence
 
 from contingency_bench.benchmark import BenchmarkResult, run_benchmark
 
+# Anthropic model IDs: APILLMClient passes the name to the Messages API as is.
 DEFAULT_MODELS: tuple[str, ...] = (
-    "claude-3-5-sonnet",
-    "gpt-4o",
-    "llama-3-70b",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-5",
+    "claude-opus-5-5",
 )
 
 DEFAULT_MOCK_BETAS: dict[str, float] = {
-    "claude-3-5-sonnet": 0.25,
-    "gpt-4o": 0.15,
-    "llama-3-70b": 0.45,
+    "claude-haiku-4-5-20251001": 0.45,
+    "claude-sonnet-5": 0.25,
+    "claude-opus-5-5": 0.15,
 }
 
 
@@ -64,7 +65,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="append",
         dest="models",
         default=None,
-        help="Repeatable. Defaults to claude-3-5-sonnet, gpt-4o, llama-3-70b.",
+        help="Repeatable. Defaults to " + ", ".join(DEFAULT_MODELS) + ".",
     )
     parser.add_argument(
         "--verbose",

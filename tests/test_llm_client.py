@@ -48,7 +48,7 @@ def test_api_client_raises_clean_import_error_when_anthropic_absent(
     monkeypatch.setattr(builtins, "__import__", blocked_import)
 
     with pytest.raises(ImportError, match=r"contingency-bench\[llm\]"):
-        APILLMClient("claude-3-5-sonnet")
+        APILLMClient("claude-haiku-4-5-20251001")
 
 
 def test_api_client_accepts_injected_client() -> None:
@@ -67,7 +67,7 @@ def test_api_client_accepts_injected_client() -> None:
     class FakeAnthropic:
         messages = FakeMessages()
 
-    client = APILLMClient("claude-3-5-sonnet", client=FakeAnthropic())
+    client = APILLMClient("claude-haiku-4-5-20251001", client=FakeAnthropic())
     action = client.get_action("どっち？")
     assert action == 0
 
@@ -80,6 +80,6 @@ def test_api_client_falls_back_on_api_exception() -> None:
     class ExplodingAnthropic:
         messages = ExplodingMessages()
 
-    client = APILLMClient("claude-3-5-sonnet", client=ExplodingAnthropic())
+    client = APILLMClient("claude-haiku-4-5-20251001", client=ExplodingAnthropic())
     action = client.get_action("どっち？")
     assert action in (0, 1)

@@ -36,7 +36,7 @@ CLI:
 
 ```bash
 contingency-bench --mock --steps 50 --verbose
-contingency-bench --mock --model claude-3-5-sonnet --model gpt-4o --steps 100
+contingency-bench --mock --model claude-haiku-4-5-20251001 --model claude-sonnet-5 --steps 100
 ```
 
 ## 30-second example

@@ -132,7 +132,7 @@ def run_benchmark(
     Parameters
     ----------
     models:
-        Model identifiers (e.g. ``"claude-3-5-sonnet"``).
+        Anthropic model IDs (e.g. ``"claude-haiku-4-5-20251001"``).
     use_mock:
         If True, use :class:`MockLLMClient` (no API calls). If False, use
         :class:`APILLMClient`, which requires the ``[llm]`` extra.
