@@ -32,6 +32,6 @@ CLI: `contingency-bench --mock --steps 50`. Live runs use `APILLMClient`, which 
 
 ## Related packages
 
-- [session-analyzer](https://github.com/OperantKit/session-analyzer): the generalized-matching estimator mirrored here, plus other analyses (`pip install session-analyzer`)
-- [contingency-py](https://github.com/OperantKit/contingency-py): time-based schedule engine with Fleshler-Hoffman VI values (`pip install contingency-py`)
+- [session-analyzer](https://github.com/OperantKit/session-analyzer): the generalized-matching estimator mirrored here, plus other analyses
+- [contingency-py](https://github.com/OperantKit/contingency-py): time-based schedule engine with Fleshler-Hoffman VI values
 - [contingency-rs](https://github.com/OperantKit/contingency-rs): Rust engine and hardware-in-the-loop bridge
