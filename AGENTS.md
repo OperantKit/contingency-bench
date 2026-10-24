@@ -29,6 +29,15 @@ For time-based schedules with real VI intervals (Fleshler-Hoffman) and full sess
 
 Use behavior-analytic terms: *reinforcer* (not "reward"), *discriminative stimulus* (not "trigger"), *establishing operation* when discussing motivation, *operandum* for a lever, key, or button.
 
+## Why not a 50-line hand-written LLM benchmark?
+
+(Moved from README.md unchanged.)
+
+- **Matching-law fit with the less biased response measure.** Sensitivity is estimated from unreinforced responses as well as from total responses (total responses bias the estimate upward at high reinforcer rates; Davison, 2021), across five reinforcement-ratio conditions.
+- **Equated exposure.** `equate_training_steps` gives every condition the same number of trials (Johnson et al., 2022), so differences in sensitivity are not differences in training.
+- **A reference model to interpret the result.** `estimate_beta_from_sensitivity` maps a fitted sensitivity onto the `beta` of a policy-compression agent (Lai & Gershman, 2021), so a model's matching can be stated as one parameter.
+- **Runs without an API.** `MockLLMClient` and the `--mock` CLI flag run the whole pipeline offline for tests and CI; the Anthropic SDK is imported only when a live client is created.
+
 ## Working on this repository
 
 - Python 3.11+. Create the environment with `python -m venv .venv` and `.venv/bin/python -m pip install -e ".[dev]"`; run `.venv/bin/pytest`.

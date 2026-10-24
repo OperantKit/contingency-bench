@@ -2,50 +2,29 @@
 
 :jp: [日本語版 README](README.ja.md)
 
-Benchmark runner for the OperantKit experimental kit: timing precision,
-LLM-as-subject performance, and matching-law parameter recovery.
+contingency-bench measures how a large language model (LLM) chooses between two options on concurrent variable-interval (VI) schedules, and summarizes its choices with the generalized matching law. It is for researchers who want to describe an LLM's choice behavior in the terms used for animals: sensitivity to reinforcement, bias, and one parameter of a reference learning model. Within [OperantKit](https://github.com/OperantKit), it is the benchmark for LLMs as subjects; it does not measure hardware timing.
 
-## Strategy A: Python-only port
+- **Sensitivity from the less biased measure.** Fitted to unreinforced responses as well as to total responses.
+- **Every condition gets the same number of trials,** so differences are not differences in exposure.
+- **Runs offline.** A simulated subject stands in for the LLM, so you can check the pipeline without an API key.
 
-This package is the Python-only port of the original mixed Rust + Python
-benchmark project. Strategy A (per the porting plan) keeps the LLM
-behavioral-characteristics runner here and defers the Rust hardware-in-the-loop
-(HIL) host_runner / Teensy firmware to a separate package. Until that handoff
-ships, the Rust workspace and the Teensy ground-truth firmware remain in the
-frozen v0 archive (read-only reference, not part of this distribution).
+## Installation
 
-## Public API
-
-```python
-from contingency_bench import (
-    BaseLLMClient,
-    APILLMClient,
-    MockLLMClient,
-    ConcurrentVISession,
-    PolicyCompressionAgent,
-    MatchingParameters,
-    estimate_matching_parameters,
-    estimate_beta_from_sensitivity,
-    equate_training_steps,
-    run_benchmark,
-    run_condition,
-)
-```
-
-CLI:
-
-```bash
-contingency-bench --mock --steps 50 --verbose
-contingency-bench --mock --model claude-haiku-4-5-20251001 --model claude-sonnet-5 --steps 100
-```
-
-## 30-second example
+Python 3.11 or newer. contingency-bench is not on PyPI yet; install it from GitHub. Its dependencies, numpy and scipy, come from PyPI.
 
 ```bash
 pip install git+https://github.com/OperantKit/contingency-bench
 ```
 
-Run the benchmark on a simulated subject (a policy-compression Q-learner with `beta = 0.2`) instead of an LLM, so no API key is needed:
+To query Claude models, also install the Anthropic SDK and set `ANTHROPIC_API_KEY`:
+
+```bash
+pip install anthropic
+```
+
+## Example
+
+Run the whole procedure on the simulated subject (a policy-compression learner with `beta = 0.2`) instead of an LLM, so no API key is needed:
 
 ```python
 import numpy as np
@@ -59,77 +38,54 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 # 0.38 0.82 -0.18 0.17
 ```
 
-The printed values are the generalized-matching sensitivity from unreinforced responses, the sensitivity from total responses, the bias (log b), and the `beta` recovered from the sensitivity; the recovered 0.17 is close to the simulated 0.2. With `use_mock=False` the same procedure presents each trial to a Claude model through the Anthropic API (`pip install 'contingency-bench[llm]'`, `ANTHROPIC_API_KEY`).
+The four values are the generalized-matching sensitivity fitted to unreinforced responses, the sensitivity fitted to total responses, the bias (log b), and the `beta` recovered from the first sensitivity. The recovered 0.17 is close to the simulated 0.2.
 
-## Why not a 50-line hand-written LLM benchmark?
+## How it works
 
-- **Matching-law fit with the less biased response measure.** Sensitivity is estimated from unreinforced responses as well as from total responses (total responses bias the estimate upward at high reinforcer rates; Davison, 2021), across five reinforcement-ratio conditions.
-- **Equated exposure.** `equate_training_steps` gives every condition the same number of trials (Johnson et al., 2022), so differences in sensitivity are not differences in training.
-- **A reference model to interpret the result.** `estimate_beta_from_sensitivity` maps a fitted sensitivity onto the `beta` of a policy-compression agent (Lai & Gershman, 2021), so a model's matching can be stated as one parameter.
-- **Runs without an API.** `MockLLMClient` and the `--mock` CLI flag run the whole pipeline offline for tests and CI; the Anthropic SDK is imported only when a live client is created.
+1. **Session.** Two buttons. On every trial each button that is not already set up becomes set up with its own probability; a response on a set-up button is reinforced and resets it. Five conditions are run, with set-up probabilities (0.1, 0.9), (0.3, 0.7), (0.5, 0.5), (0.7, 0.3), and (0.9, 0.1).
+2. **Subject.** On each trial an LLM gets a short Japanese prompt with the trial number and its responses and reinforcers so far on each button, and answers `1` or `2`. The simulated subject is a policy-compression learner (Lai & Gershman, 2021).
+3. **Fit.** The generalized matching law (Baum, 1974) is fitted across the five conditions twice: to the ratio of unreinforced responses and to the ratio of total responses. Total responses bias the sensitivity upward when reinforcers are frequent (Davison, 2021).
+4. **Reference model.** `estimate_beta_from_sensitivity` finds the `beta` of the policy-compression learner whose sensitivity is closest to the fitted one, so the result can be stated as one parameter.
 
-## Installation
+| Name | What it is |
+|---|---|
+| `run_benchmark`, `run_condition` | Run all conditions for one or more subjects, or one condition |
+| `ConcurrentVISession` | The two-button session |
+| `MockLLMClient`, `APILLMClient`, `BaseLLMClient` | The simulated subject, a Claude model through the Anthropic API, and the base class for your own client |
+| `PolicyCompressionAgent` | The reference learner |
+| `estimate_matching_parameters`, `estimate_beta_from_sensitivity` | The matching-law fit and the `beta` lookup |
+| `equate_training_steps` | Gives every condition the same number of trials |
+
+The command line runs the same procedure: `contingency-bench --mock --steps 50`. Without `--mock` it calls the API; `--model` (repeatable) chooses the Claude model IDs. With `--mock`, the default model names are only labels for simulated subjects with different `beta` values.
+
+## Limitations
+
+- **The session is in trials, not in time.** "VI" here means a fixed set-up probability per trial; there are no inter-reinforcement intervals in seconds, no changeover delay, and no Fleshler–Hoffman values. It is not a model of a chamber session.
+- **Only two buttons and five conditions,** fixed in the code unless you pass your own `conditions`.
+- **Only Anthropic models** are built in. Other models need a subclass of `BaseLLMClient`.
+- **Failed calls become random choices.** If the API call fails (a warning is logged), or the answer contains both `1` and `2` or neither (nothing is logged), the trial is answered at random. The number of such trials is not reported.
+- **It does not measure timing.** There is no hardware-in-the-loop (HIL) timing benchmark in this package.
+
+## For AI coding agents
+
+Guidance for AI coding agents is in [AGENTS.md](AGENTS.md).
+
+## Development
 
 ```bash
-mise exec -- python -m venv .venv
+python -m venv .venv
 .venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/pytest
 ```
 
-For live API benchmarks (Anthropic SDK, lazy-loaded):
-
-```bash
-.venv/bin/python -m pip install -e ".[llm]"
-export ANTHROPIC_API_KEY=...
-```
-
-## Tests
-
-```bash
-.venv/bin/python -m pytest -q
-```
-
-## Local dependency notes
-
-The Q-learning agent and the GML estimator originate in sibling packages
-in the same monorepo but are not yet published to PyPI. To keep
-`contingency-bench` installable as a standalone package, both modules are
-**inlined** here:
-
-- `contingency_bench.policy_compression.PolicyCompressionAgent`
-- `contingency_bench.matching.estimate_matching_parameters`
-  (mirrors `session_analyzer.analytics.matching`)
-
-When the upstream modules are published, the inlined copies should be
-replaced with re-exports. The public symbols stay the same.
-
-## LLM dependency notes
-
-The v0 driver supported multiple model vendors via `litellm`. This port adopts
-the single-vendor `anthropic` SDK to match the new repository's standard LLM
-dependency. The SDK is imported **lazily** in
-`contingency_bench.llm_client.APILLMClient.__init__`; importing the module
-itself never requires the optional `[llm]` extra. Re-introducing multi-vendor
-support is a follow-up.
-
-## Future Rust workspace
-
-The Rust HIL harness (`host_runner` binary, `protocol`, `scenarios`, `metrics`)
-and the Teensy 4.1 ground-truth firmware live in the v0 archive and are
-expected to be ported into a separate package alongside the `contingency-rs`
-handoff. They are intentionally out of scope for this Python-only release.
+Every `python` block in both READMEs is run by `tests/test_readme_examples.py`.
 
 ## References
 
-- Baum, W. M. (1974). On two types of deviation from the matching law: Bias
-  and undermatching. *Journal of the Experimental Analysis of Behavior*, 22,
-  231-242. https://doi.org/10.1901/jeab.1974.22-231
-- Davison, M. (2021). What is the value of the generalized matching law?
-  *Journal of the Experimental Analysis of Behavior*, 116, 114-123.
-  https://doi.org/10.1002/jeab.694
-- Johnson, J. E., Kangas, B. D., Bergman, J., & Rice, K. C. (2022).
-  Comparison of fixed- and variable-ratio schedules of reinforcement on
-  progressive-ratio responding. *Journal of the Experimental Analysis of
-  Behavior*, 117, 320-330. https://doi.org/10.1002/jeab.755
-- Lai, L., & Gershman, S. J. (2021). Policy compression: An information
-  bottleneck in action selection. *Psychology of Learning and Motivation*, 74,
-  195-232. https://doi.org/10.1016/bs.plm.2021.02.004
+- Baum, W. M. (1974). On two types of deviation from the matching law: Bias and undermatching. *Journal of the Experimental Analysis of Behavior, 22*(1), 231–242. https://doi.org/10.1901/jeab.1974.22-231
+- Davison, M. (2021). Concurrent schedules: How responses per reinforcer affects estimates of sensitivity to reinforcement. *Journal of the Experimental Analysis of Behavior, 116*(1), 114–123. https://doi.org/10.1002/jeab.694
+- Lai, L., & Gershman, S. J. (2021). Policy compression: An information bottleneck in action selection. *Psychology of Learning and Motivation, 74*, 195–232. https://doi.org/10.1016/bs.plm.2021.02.004
+
+## License
+
+MIT (declared in `pyproject.toml`).
