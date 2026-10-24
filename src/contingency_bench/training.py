@@ -8,10 +8,10 @@ schedule type. The same invariant is enforced for the LLM benchmark below.
 
 References
 ----------
-Johnson, Kangas, Bergman, & Rice (2022). Comparison of fixed- and
-variable-ratio schedules of reinforcement on progressive-ratio responding.
-Journal of the Experimental Analysis of Behavior, 117, 320-330.
-https://doi.org/10.1002/jeab.755
+Johnson, A. R., Christensen, B. A., Kelly, S. J., & Calipari, E. S. (2022).
+The influence of reinforcement schedule on experience-dependent changes in
+motivation. Journal of the Experimental Analysis of Behavior, 117(3),
+320-330. https://doi.org/10.1002/jeab.755
 """
 
 from __future__ import annotations

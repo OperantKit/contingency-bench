@@ -20,8 +20,9 @@ Baum (1974). On two types of deviation from the matching law: Bias and
 undermatching. Journal of the Experimental Analysis of Behavior, 22, 231-242.
 https://doi.org/10.1901/jeab.1974.22-231
 
-Davison (2021). What is the value of the generalized matching law?
-Journal of the Experimental Analysis of Behavior, 116, 114-123.
+Davison, M. (2021). Concurrent schedules: How responses per reinforcer
+affects estimates of sensitivity to reinforcement. Journal of the
+Experimental Analysis of Behavior, 116(1), 114-123.
 https://doi.org/10.1002/jeab.694
 """
 
