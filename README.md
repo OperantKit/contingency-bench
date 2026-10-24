@@ -88,4 +88,4 @@ Every `python` block in both READMEs is run by `tests/test_readme_examples.py`.
 
 ## License
 
-MIT (declared in `pyproject.toml`).
+MIT. See [LICENSE](LICENSE).

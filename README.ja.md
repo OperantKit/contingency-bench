@@ -88,4 +88,4 @@ python -m venv .venv
 
 ## ライセンス
 
-MIT（`pyproject.toml` に記載）。
+MIT です。[LICENSE](LICENSE) を参照してください。
