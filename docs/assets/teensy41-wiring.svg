@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 580" width="760" height="580" font-family="Helvetica, Arial, sans-serif">
+  <title>Teensy 4.1 to logic analyzer: three wires</title>
+  <rect width="760" height="580" fill="#ffffff"/>
+
+  <!-- Teensy 4.1, USB connector to the left; only the bottom edge pins are drawn -->
+  <text x="40" y="34" font-size="20" font-weight="bold" fill="#111">Teensy 4.1 (USB connector to the left)</text>
+  <rect x="40" y="56" width="680" height="120" rx="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="2"/>
+  <rect x="22" y="92" width="36" height="48" rx="3" fill="#b0b0b0" stroke="#666" stroke-width="2"/>
+  <text x="66" y="112" font-size="13" fill="#e8f5e9">USB</text>
+  <text x="380" y="92" font-size="14" fill="#e8f5e9" text-anchor="middle">bottom edge, left to right: GND, 0, 1, 2, 3, ... 12, 3.3V, 24 ... 32</text>
+
+  <!-- bottom-edge pins: GND, 0..12 -->
+  <g fill="#d4a017" stroke="#7a5c00" stroke-width="1.5">
+    <circle cx="70" cy="160" r="7"/>
+    <circle cx="110" cy="160" r="7"/>
+    <circle cx="150" cy="160" r="7"/>
+    <circle cx="190" cy="160" r="7"/>
+    <circle cx="230" cy="160" r="7"/>
+    <circle cx="270" cy="160" r="7"/>
+    <circle cx="310" cy="160" r="7"/>
+    <circle cx="350" cy="160" r="7"/>
+    <circle cx="390" cy="160" r="7"/>
+    <circle cx="430" cy="160" r="7"/>
+    <circle cx="470" cy="160" r="7"/>
+    <circle cx="510" cy="160" r="7"/>
+    <circle cx="550" cy="160" r="7"/>
+    <circle cx="590" cy="160" r="7"/>
+  </g>
+  <g font-size="14" fill="#ffffff" text-anchor="middle">
+    <text x="70" y="143">GND</text>
+    <text x="110" y="143">0</text>
+    <text x="150" y="143">1</text>
+    <text x="190" y="143" font-weight="bold">2</text>
+    <text x="230" y="143" font-weight="bold">3</text>
+    <text x="270" y="143">4</text>
+    <text x="310" y="143">5</text>
+    <text x="350" y="143">6</text>
+    <text x="390" y="143">7</text>
+    <text x="430" y="143">8</text>
+    <text x="470" y="143">9</text>
+    <text x="510" y="143">10</text>
+    <text x="550" y="143">11</text>
+    <text x="590" y="143">12</text>
+  </g>
+
+  <!-- wires -->
+  <g fill="none" stroke-width="4" stroke-linejoin="round">
+    <polyline points="190,160 190,250 290,250 290,388" stroke="#d32f2f"/>
+    <polyline points="230,160 230,280 340,280 340,388" stroke="#1565c0"/>
+    <polyline points="70,160 70,310 690,310 690,388" stroke="#111111"/>
+  </g>
+
+  <!-- logic analyzer (8 channels + GND) -->
+  <rect x="250" y="370" width="480" height="110" rx="10" fill="#2b2b2b"/>
+  <g fill="#d4a017">
+    <rect x="282" y="380" width="16" height="16"/>
+    <rect x="332" y="380" width="16" height="16"/>
+    <rect x="382" y="380" width="16" height="16"/>
+    <rect x="432" y="380" width="16" height="16"/>
+    <rect x="482" y="380" width="16" height="16"/>
+    <rect x="532" y="380" width="16" height="16"/>
+    <rect x="582" y="380" width="16" height="16"/>
+    <rect x="632" y="380" width="16" height="16"/>
+    <rect x="682" y="380" width="16" height="16"/>
+  </g>
+  <g font-size="13" fill="#ffffff" text-anchor="middle">
+    <text x="290" y="414">CH1</text>
+    <text x="340" y="414">CH2</text>
+    <text x="390" y="414">CH3</text>
+    <text x="440" y="414">CH4</text>
+    <text x="490" y="414">CH5</text>
+    <text x="540" y="414">CH6</text>
+    <text x="590" y="414">CH7</text>
+    <text x="640" y="414">CH8</text>
+    <text x="690" y="414">GND</text>
+  </g>
+  <text x="490" y="458" font-size="14" fill="#ffffff" text-anchor="middle">Logic analyzer (USB to the recording computer)</text>
+
+  <!-- legend -->
+  <g font-size="15" fill="#111">
+    <line x1="40" y1="505" x2="80" y2="505" stroke="#d32f2f" stroke-width="4"/>
+    <text x="90" y="510">pin 2 (feeder, HIGH while the reinforcer is on) → CH1</text>
+    <line x1="40" y1="528" x2="80" y2="528" stroke="#1565c0" stroke-width="4"/>
+    <text x="90" y="533">pin 3 (response marker, 1 ms pulse) → CH2</text>
+    <line x1="40" y1="551" x2="80" y2="551" stroke="#111111" stroke-width="4"/>
+    <text x="90" y="556">GND → GND</text>
+  </g>
+</svg>

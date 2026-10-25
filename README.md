@@ -2,7 +2,7 @@
 
 :jp: [日本語版 README](README.ja.md)
 
-contingency-bench measures how a large language model (LLM) chooses between two options on concurrent variable-interval (VI) schedules, and summarizes its choices with the generalized matching law. It is for researchers who want to describe an LLM's choice behavior in the terms used for animals: sensitivity to reinforcement, bias, and one parameter of a reference learning model. Within [OperantKit](https://github.com/OperantKit), it is the benchmark for LLMs as subjects; it does not measure hardware timing.
+contingency-bench measures how a large language model (LLM) chooses between two options on concurrent variable-interval (VI) schedules, and summarizes its choices with the generalized matching law. It is for researchers who want to describe an LLM's choice behavior in the terms used for animals: sensitivity to reinforcement, bias, and one parameter of a reference learning model. Within [OperantKit](https://github.com/OperantKit), it is the benchmark for LLMs as subjects. It also holds the firmware for a fake operant chamber on a Teensy 4.1, the first piece of a hardware-in-the-loop (HIL) timing bench; the Python package does not measure timing yet.
 
 - **Sensitivity from the less biased measure.** Fitted to unreinforced responses as well as to total responses.
 - **Every condition gets the same number of trials,** so differences are not differences in exposure.
@@ -64,7 +64,55 @@ The command line runs the same procedure: `contingency-bench --mock --steps 50`.
 - **Only two buttons and five conditions,** fixed in the code unless you pass your own `conditions`.
 - **Only Anthropic models** are built in. Other models need a subclass of `BaseLLMClient`.
 - **Failed calls become random choices.** If the API call fails (a warning is logged), or the answer contains both `1` and `2` or neither (nothing is logged), the trial is answered at random. The number of such trials is not reported.
-- **It does not measure timing.** There is no hardware-in-the-loop (HIL) timing benchmark in this package.
+- **The Python package does not measure timing.** The Teensy firmware below exists, but the host-side runner and the analysis of its records are not in this package yet.
+
+## Hardware (Teensy 4.1)
+
+`firmware/teensy41/` is a fake operant chamber for a [Teensy 4.1](https://www.pjrc.com/store/teensy41.html). A simulated subject responds every 300 ms, and the board speaks the line-delimited JSON of the experiment-io serial backend (`SerialOperandum` / `SerialReinforcer`), so a host session can run against real USB serial. Two pins can be recorded with a logic analyzer to check the latency from a response to the reinforcer.
+
+### Wiring
+
+Three wires from the Teensy to a logic analyzer:
+
+| Teensy 4.1 | Logic analyzer | Signal |
+|---|---|---|
+| pin 2 | CH1 | Feeder: HIGH while the reinforcer is on |
+| pin 3 | CH2 | Response marker: a 1 ms HIGH pulse at each response |
+| GND | GND | Common ground |
+
+![Teensy 4.1 pins 2, 3 and GND wired to logic analyzer CH1, CH2 and GND](docs/assets/teensy41-wiring.svg)
+
+With the USB connector to the left, the bottom row of pins is, from the left, GND, 0, 1, 2, 3, ... 12. The Teensy and the analyzer may be connected to different computers; the GND wire then joins the two computers' grounds.
+
+### Build and upload
+
+With [PlatformIO](https://platformio.org/) installed:
+
+```bash
+cd firmware/teensy41
+pio run              # build only
+pio run -t upload    # build and upload (teensy-cli)
+```
+
+### Serial protocol
+
+One JSON object per line, in both directions, over USB serial.
+
+| Direction | Line | Meaning |
+|---|---|---|
+| device → host | `{"op":0,"ts":<s>,"kind":"response","seq":<n>}` | A response on operandum 0. `ts` is in seconds on the host clock given by the last `sync`; `seq` counts from 0 |
+| host → device | `{"cmd": "reinforcer", "op": 0, "duration": <s>}` | Turn the feeder (pin 2) on for `duration` seconds (0.5 if missing) |
+| host → device | `{"cmd":"sync","t":<s>}` | Start responding. `t` is the host's clock now; later `ts` values are `t` plus the Teensy's elapsed time. Clears the latency log |
+| host → device | `{"cmd":"stop"}` | Stop responding |
+| host → device | `{"cmd":"report"}` | Reply `{"kind":"report","n":<n>,"lat_us":[...]}`: for each reinforcer command, the microseconds from the response it followed to its arrival (up to 2000) |
+
+The simulated subject does not respond while the feeder is on. The next response comes 300 ms after the previous one.
+
+### Known constraints
+
+- **macOS asks to allow each new accessory connection.** Each time the Teensy is plugged in again (including the re-enumeration during an upload), macOS may show "Allow accessory to connect?". Until it is allowed, uploading fails with `Operation not permitted` or `Unable to open device`. To avoid the prompt, set System Settings → Privacy & Security → Accessories → "Allow accessories to connect" to "Automatically allow when unlocked" ([Apple Support](https://support.apple.com/en-us/102282)).
+- **A timed-out upload can leave `teensy_loader_cli` holding the board.** Stop the leftover process (`pgrep -fl teensy_loader`) before the next upload.
+- **The `ts` from the device is not yet usable as the session time.** The transmission delay can put a response time before the host's last tick, and the schedule then stops with `ScheduleStateError: Non-monotonic time`. Until the host stamps responses on receipt, stamp them on the host side.
 
 ## For AI coding agents
 
