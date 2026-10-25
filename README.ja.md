@@ -64,7 +64,7 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 - **ボタンは 2 つ、条件は 5 つだけ**です。自分の `conditions` を渡さない限りコードで固定です。
 - **組み込みは Anthropic のモデルだけ**です。他のモデルには `BaseLLMClient` のサブクラスが要ります。
 - **失敗した呼び出しは無作為の選択になります。** API の呼び出しが失敗したとき（警告がログに出ます）や、答えに `1` と `2` の両方が含まれるか、どちらも含まれないとき（何もログに出ません）、その試行は無作為に答えられます。そうなった試行の数は報告されません。
-- **Python のパッケージは計時を測りません。** 下の Teensy のファームウェアはありますが、ホスト側の実行の道具とその記録の解析は、まだこのパッケージにありません。
+- **Python のパッケージは実機のセッションを回しません。** 下の Teensy のファームウェアとロジックアナライザの記録の解析はありますが、ホスト側の実行の道具は、まだこのパッケージにありません。
 
 ## 実機（Teensy 4.1）
 
@@ -107,6 +107,25 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 | ホスト → 機器 | `{"cmd":"report"}` | `{"kind":"report","n":<n>,"lat_us":[...]}` を返す。強化子の命令ごとに、直前の反応から命令が届くまでのマイクロ秒（最大 2000 件） |
 
 模擬の被験体は、給餌器が ON の間は反応しません。次の反応は前の反応の 300 ms 後です。
+
+### 遅れの解析
+
+`contingency-bench-hil-latency` は `sigrok-cli -O vcd` が書いたロジックアナライザの記録を読み、反応の目印（CH2）ごとに次の給餌器の立ち上がり（CH1）までの時間を数え、件数・中央値・p95・p99・最小・最大をマイクロ秒で出します。時間の単位は VCD の `$timescale` から読むので、1 MHz（`1 us`）と 4 MHz（`10 ns`）の記録が同じ単位になります。p95 と p99 は補間せず、記録された値のどれかを返します。
+
+```bash
+contingency-bench-hil-latency run.vcd --device-report report.json --expected-width 0.05
+```
+
+| オプション | 意味 |
+|---|---|
+| `--device-report` | 機器の `report`（`{"kind":"report","lat_us":[...]}`。そのままでも `"device"` の下でもよい）を含む JSON。反応ごとの差「アナライザ − 機器」を足す |
+| `--expected-width` | 強化子の命令で送った `duration`（秒）。これと `--width-tolerance`（既定 0.0001 秒）より大きく違う給餌器のパルスを数え、警告に出す |
+| `--response-signal` / `--feeder-signal` | sigrok の信号名（既定 `D1` / `D0`。アナライザの CH2 / CH1） |
+| `--json` | 要約と反応ごとの値を JSON で出す |
+
+警告があると終了コードは 1 です。警告は、次の反応までに給餌器の立ち上がりが無い反応の目印、命令と違う給餌器の幅、反応の目印の数と長さが違う機器の report の 3 つです。給餌器の幅の誤りは、配線よりもファームウェアのパルスの終わりの計時が原因であることが多いので、まずファームウェアの出力を確かめてください。同じ解析は `contingency_bench.hil_latency` の `parse_vcd` と `analyze` でも使えます。
+
+アナライザは別のパソコンにつないでかまいません（sigrok-cli は Windows でも動きます）。セッションを回している間に CH1 と CH2 を記録し（例: `sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 80000 -O vcd -o run.vcd`。`--time` はミリ秒）、VCD を解析するパソコンに写します。
 
 ### 既知の制約
 

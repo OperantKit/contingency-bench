@@ -50,6 +50,7 @@ dev = [
 
 [project.scripts]
 contingency-bench = "contingency_bench.cli:main"
+contingency-bench-hil-latency = "contingency_bench.hil_latency:main"
 
 [project.urls]
 Homepage = "https://github.com/OperantKit"

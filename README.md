@@ -64,7 +64,7 @@ The command line runs the same procedure: `contingency-bench --mock --steps 50`.
 - **Only two buttons and five conditions,** fixed in the code unless you pass your own `conditions`.
 - **Only Anthropic models** are built in. Other models need a subclass of `BaseLLMClient`.
 - **Failed calls become random choices.** If the API call fails (a warning is logged), or the answer contains both `1` and `2` or neither (nothing is logged), the trial is answered at random. The number of such trials is not reported.
-- **The Python package does not measure timing.** The Teensy firmware below exists, but the host-side runner and the analysis of its records are not in this package yet.
+- **The Python package does not run the hardware session.** The Teensy firmware and the analysis of logic-analyzer records below are here, but the host-side runner is not in this package yet.
 
 ## Hardware (Teensy 4.1)
 
@@ -107,6 +107,25 @@ One JSON object per line, in both directions, over USB serial.
 | host → device | `{"cmd":"report"}` | Reply `{"kind":"report","n":<n>,"lat_us":[...]}`: for each reinforcer command, the microseconds from the response it followed to its arrival (up to 2000) |
 
 The simulated subject does not respond while the feeder is on. The next response comes 300 ms after the previous one.
+
+### Latency analysis
+
+`contingency-bench-hil-latency` reads a logic-analyzer recording written by `sigrok-cli -O vcd` and prints, for each response marker (CH2), the time to the next feeder rising edge (CH1): count, median, p95, p99, minimum and maximum, in microseconds. The time unit is taken from the VCD's `$timescale`, so recordings at 1 MHz (`1 us`) and 4 MHz (`10 ns`) give the same unit. p95 and p99 are recorded values, not interpolated.
+
+```bash
+contingency-bench-hil-latency run.vcd --device-report report.json --expected-width 0.05
+```
+
+| Option | Meaning |
+|---|---|
+| `--device-report` | JSON holding the device's `report` (`{"kind":"report","lat_us":[...]}`, bare or under `"device"`). Adds the per-response difference "analyzer − device" |
+| `--expected-width` | The `duration` sent in the reinforcer command, in seconds. Feeder pulses that differ from it by more than `--width-tolerance` (default 0.0001 s) are counted and shown in a warning |
+| `--response-signal` / `--feeder-signal` | sigrok signal names (default `D1` / `D0`, which are analyzer CH2 / CH1) |
+| `--json` | Print the summary and the per-response values as JSON |
+
+The command exits with 1 when there is a warning: a response marker with no feeder edge before the next response, a feeder width that differs from the command, or a device report whose length differs from the number of response markers. A wrong feeder width is more often the firmware's timing of the pulse end than the wiring; check the firmware output first. The same analysis is available as `parse_vcd` and `analyze` in `contingency_bench.hil_latency`.
+
+The analyzer can be on another computer (sigrok-cli also runs on Windows). Record CH1 and CH2 while the session runs, for example `sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 80000 -O vcd -o run.vcd` (`--time` in milliseconds), and copy the VCD to the computer that runs the analysis.
 
 ### Known constraints
 
