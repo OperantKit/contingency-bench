@@ -37,6 +37,15 @@ dependencies = [
 llm = [
   "anthropic>=0.39",
 ]
+hil = [
+  "pyserial>=3.5",
+  "experiment-core>=0.1.1,<0.2",
+  "session-runner>=0.1.1,<0.2",
+  "session-recorder>=0.1.1,<0.2",
+  "experiment-io>=0.1.1,<0.2",
+  "contingency-py>=0.1.1,<0.2",
+  "contingency-dsl-py>=0.1.1,<0.2",
+]
 test = [
   "pytest>=8",
   "pytest-cov",
@@ -51,6 +60,7 @@ dev = [
 [project.scripts]
 contingency-bench = "contingency_bench.cli:main"
 contingency-bench-hil-latency = "contingency_bench.hil_latency:main"
+contingency-bench-hil-crf = "contingency_bench.hil_crf:main"
 
 [project.urls]
 Homepage = "https://github.com/OperantKit"
@@ -97,5 +107,5 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["scipy.*", "anthropic", "anthropic.*"]
+module = ["scipy.*", "anthropic", "anthropic.*", "serial", "serial.*"]
 ignore_missing_imports = true

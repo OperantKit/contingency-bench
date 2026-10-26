@@ -2,7 +2,7 @@
 
 :gb: [English README](README.md)
 
-contingency-bench は、大規模言語モデル（LLM）が並立変動間隔（VI）スケジュールの 2 つの選択肢をどう選ぶかを測り、その選択を一般化マッチング法則でまとめます。動物と同じ言葉、つまり強化への感度・偏好（バイアス）・参照用の学習モデルの 1 つのパラメータで LLM の選択行動を記述したい研究者に向けたものです。[OperantKit](https://github.com/OperantKit) の中では、LLM を被験体としたベンチマークを担います。また、ハードウェアを組み込んだ（HIL: hardware-in-the-loop）計時ベンチの最初の部品として、Teensy 4.1 で動く偽のオペラント箱のファームウェアを持ちます。Python のパッケージはまだ計時を測りません。
+contingency-bench は、大規模言語モデル（LLM）が並立変動間隔（VI）スケジュールの 2 つの選択肢をどう選ぶかを測り、その選択を一般化マッチング法則でまとめます。動物と同じ言葉、つまり強化への感度・偏好（バイアス）・参照用の学習モデルの 1 つのパラメータで LLM の選択行動を記述したい研究者に向けたものです。[OperantKit](https://github.com/OperantKit) の中では、LLM を被験体としたベンチマークを担います。また、ハードウェアを組み込んだ（HIL: hardware-in-the-loop）計時ベンチとして、Teensy 4.1 で動く偽のオペラント箱のファームウェア、それを OperantKit のセッションで回すホスト側の実行の道具、ロジックアナライザの記録の解析を持ちます。
 
 - **偏りの少ない指標で感度を出す。** 総反応だけでなく、強化されなかった反応にも当てはめます。
 - **どの条件も試行数が同じ。** 差が経験量の差にならないようにします。
@@ -64,7 +64,7 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 - **ボタンは 2 つ、条件は 5 つだけ**です。自分の `conditions` を渡さない限りコードで固定です。
 - **組み込みは Anthropic のモデルだけ**です。他のモデルには `BaseLLMClient` のサブクラスが要ります。
 - **失敗した呼び出しは無作為の選択になります。** API の呼び出しが失敗したとき（警告がログに出ます）や、答えに `1` と `2` の両方が含まれるか、どちらも含まれないとき（何もログに出ません）、その試行は無作為に答えられます。そうなった試行の数は報告されません。
-- **Python のパッケージは実機のセッションを回しません。** 下の Teensy のファームウェアとロジックアナライザの記録の解析はありますが、ホスト側の実行の道具は、まだこのパッケージにありません。
+- **実機の実行の道具は、操作体 1 つ・給餌器 1 つです。** 偽のオペラント箱がそうだからです。並立スケジュールはつないでいません。
 
 ## 実機（Teensy 4.1）
 
@@ -108,6 +108,26 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 
 模擬の被験体は、給餌器が ON の間は反応しません。次の反応は前の反応の 300 ms 後です。
 
+### ホスト側の実行
+
+`contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`hil` の追加依存（pyserial と OperantKit のパッケージ。`drive` が `on_response` を受け付ける版）が要ります。
+
+```bash
+pip install "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 200 \
+    --duration 0.05 --okl run.okl --summary host.json
+```
+
+| オプション | 意味 |
+|---|---|
+| `--dsl` | contingency-dsl の式（既定 `CRF`） |
+| `--reinforcers` | この回数の強化子でセッションを終える（既定 200） |
+| `--duration` | 強化子の長さ（秒）。強化子の命令ごとに送る（既定 0.05） |
+| `--okl` / `--summary` | OKL のログ／要約の JSON を書く |
+| `--max-duration` | この秒数で打ち切る（既定 600） |
+
+セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms`（反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値）と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
+
 ### 遅れの解析
 
 `contingency-bench-hil-latency` は `sigrok-cli -O vcd` が書いたロジックアナライザの記録を読み、反応の目印（CH2）ごとに次の給餌器の立ち上がり（CH1）までの時間を数え、件数・中央値・p95・p99・最小・最大をマイクロ秒で出します。時間の単位は VCD の `$timescale` から読むので、1 MHz（`1 us`）と 4 MHz（`10 ns`）の記録が同じ単位になります。p95 と p99 は補間せず、記録された値のどれかを返します。
@@ -125,13 +145,19 @@ contingency-bench-hil-latency run.vcd --device-report report.json --expected-wid
 
 警告があると終了コードは 1 です。警告は、次の反応までに給餌器の立ち上がりが無い反応の目印、命令と違う給餌器の幅、反応の目印の数と長さが違う機器の report の 3 つです。給餌器の幅の誤りは、配線よりもファームウェアのパルスの終わりの計時が原因であることが多いので、まずファームウェアの出力を確かめてください。同じ解析は `contingency_bench.hil_latency` の `parse_vcd` と `analyze` でも使えます。
 
-アナライザは別のパソコンにつないでかまいません（sigrok-cli は Windows でも動きます）。セッションを回している間に CH1 と CH2 を記録し（例: `sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 80000 -O vcd -o run.vcd`。`--time` はミリ秒）、VCD を解析するパソコンに写します。
+アナライザは別のパソコンにつないでかまいません（sigrok-cli は Windows でも動きます）。CH1 と CH2 の記録はセッションの数秒前に始め、セッションより少し長く取ります（0.05 秒の強化子 200 回の CRF は約 60 秒）。
+
+```bash
+sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O vcd -o run.vcd
+```
+
+`--time` はミリ秒です。VCD を解析するパソコンに写します。`-o` を付けないと sigrok-cli は VCD を標準出力に書くので、ホストから SSH で動かし、ホスト側のファイルに出力を向けることもできます。その場合、アナライザのパソコンには何も書きません。
 
 ### 既知の制約
 
 - **macOS は、新しくつながったアクセサリごとに接続の許可を求めます。** Teensy をつなぎ直すたび（書き込み中の再接続を含む）に「アクセサリの接続を許可しますか」が出ることがあり、許可されるまで書き込みは `Operation not permitted` や `Unable to open device` で失敗します。出ないようにするには、システム設定 → プライバシーとセキュリティ → アクセサリ → 「アクセサリの接続を許可」を「ロック解除時に自動的に許可」にします（[Apple のサポート記事](https://support.apple.com/en-us/102282)）。
 - **時間切れになった書き込みは、`teensy_loader_cli` が基板をつかんだまま残ることがあります。** 次の書き込みの前に、残ったプロセス（`pgrep -fl teensy_loader`）を止めます。
-- **機器が付けた `ts` は、まだセッションの時刻には使えません。** 伝送の遅れで反応の時刻がホストの直前の tick より前になり、スケジュールが `ScheduleStateError: Non-monotonic time` で止まります。ホストが受け取り時に時刻を付けるようになるまでは、ホスト側で時刻を付け直してください。
+- **Teensy の時計とホストの時計は合っていません。** `sync` で機器の原点をホストの時刻にそろえますが、その後は 2 つの時計を合わせ続けないので、ホストが命令を書いてから機器が受け取るまでの遅れは片側だけでは読めません。アナライザと機器の report が測るのは、機器の側で起きることだけです。
 
 ## AI のコーディングエージェント向け
 

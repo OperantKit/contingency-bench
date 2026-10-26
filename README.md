@@ -2,7 +2,7 @@
 
 :jp: [日本語版 README](README.ja.md)
 
-contingency-bench measures how a large language model (LLM) chooses between two options on concurrent variable-interval (VI) schedules, and summarizes its choices with the generalized matching law. It is for researchers who want to describe an LLM's choice behavior in the terms used for animals: sensitivity to reinforcement, bias, and one parameter of a reference learning model. Within [OperantKit](https://github.com/OperantKit), it is the benchmark for LLMs as subjects. It also holds the firmware for a fake operant chamber on a Teensy 4.1, the first piece of a hardware-in-the-loop (HIL) timing bench; the Python package does not measure timing yet.
+contingency-bench measures how a large language model (LLM) chooses between two options on concurrent variable-interval (VI) schedules, and summarizes its choices with the generalized matching law. It is for researchers who want to describe an LLM's choice behavior in the terms used for animals: sensitivity to reinforcement, bias, and one parameter of a reference learning model. Within [OperantKit](https://github.com/OperantKit), it is the benchmark for LLMs as subjects. It also holds a hardware-in-the-loop (HIL) timing bench: firmware for a fake operant chamber on a Teensy 4.1, a host-side runner that drives it with OperantKit sessions, and the analysis of logic-analyzer recordings.
 
 - **Sensitivity from the less biased measure.** Fitted to unreinforced responses as well as to total responses.
 - **Every condition gets the same number of trials,** so differences are not differences in exposure.
@@ -64,7 +64,7 @@ The command line runs the same procedure: `contingency-bench --mock --steps 50`.
 - **Only two buttons and five conditions,** fixed in the code unless you pass your own `conditions`.
 - **Only Anthropic models** are built in. Other models need a subclass of `BaseLLMClient`.
 - **Failed calls become random choices.** If the API call fails (a warning is logged), or the answer contains both `1` and `2` or neither (nothing is logged), the trial is answered at random. The number of such trials is not reported.
-- **The Python package does not run the hardware session.** The Teensy firmware and the analysis of logic-analyzer records below are here, but the host-side runner is not in this package yet.
+- **The hardware runner has one operandum and one feeder,** as the fake chamber has. Concurrent schedules are not wired to it.
 
 ## Hardware (Teensy 4.1)
 
@@ -108,6 +108,26 @@ One JSON object per line, in both directions, over USB serial.
 
 The simulated subject does not respond while the feeder is on. The next response comes 300 ms after the previous one.
 
+### Host-side run
+
+`contingency-bench-hil-crf` runs an OperantKit session against the board: the DSL expression is bridged to a contingency-py schedule, a session-runner `SessionRunner` writes the OKL log, and experiment-io `drive` reads responses and sends reinforcer commands over the serial port with the host's monotonic clock. It needs the `hil` extra (pyserial and the OperantKit packages; `drive` must accept `on_response`).
+
+```bash
+pip install "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 200 \
+    --duration 0.05 --okl run.okl --summary host.json
+```
+
+| Option | Meaning |
+|---|---|
+| `--dsl` | contingency-dsl expression (default `CRF`) |
+| `--reinforcers` | End the session after this many reinforcers (default 200) |
+| `--duration` | Reinforcer duration in seconds, sent in each reinforcer command (default 0.05) |
+| `--okl` / `--summary` | Write the OKL log / the summary JSON |
+| `--max-duration` | Give up after this many seconds (default 600) |
+
+Before the session the device is stopped and the input buffer cleared; `sync` then starts the simulated subject. Session time is the host clock: each response is stamped when `drive` hands it to the session, and the device's own time is kept as a record. After the session the device is stopped again and its `report` fetched; `drive` closes the port, so it is opened once more for that. The summary JSON holds `finished`, `n_reinforcers`, `n_responses`, `elapsed_s`, `host_minus_device_ms` (receipt time minus the device's `ts` for each response; the two clocks are only joined by `sync`, so this is the transmission delay plus a fixed offset) and the device report under `"device"`, which `contingency-bench-hil-latency --device-report` reads. The command exits with 1 if the session did not reach the reinforcer count or the device did not report. The same run is available as `run_crf` in `contingency_bench.hil_crf`.
+
 ### Latency analysis
 
 `contingency-bench-hil-latency` reads a logic-analyzer recording written by `sigrok-cli -O vcd` and prints, for each response marker (CH2), the time to the next feeder rising edge (CH1): count, median, p95, p99, minimum and maximum, in microseconds. The time unit is taken from the VCD's `$timescale`, so recordings at 1 MHz (`1 us`) and 4 MHz (`10 ns`) give the same unit. p95 and p99 are recorded values, not interpolated.
@@ -125,13 +145,19 @@ contingency-bench-hil-latency run.vcd --device-report report.json --expected-wid
 
 The command exits with 1 when there is a warning: a response marker with no feeder edge before the next response, a feeder width that differs from the command, or a device report whose length differs from the number of response markers. A wrong feeder width is more often the firmware's timing of the pulse end than the wiring; check the firmware output first. The same analysis is available as `parse_vcd` and `analyze` in `contingency_bench.hil_latency`.
 
-The analyzer can be on another computer (sigrok-cli also runs on Windows). Record CH1 and CH2 while the session runs, for example `sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 80000 -O vcd -o run.vcd` (`--time` in milliseconds), and copy the VCD to the computer that runs the analysis.
+The analyzer can be on another computer (sigrok-cli also runs on Windows). Start recording CH1 and CH2 a few seconds before the session and record a little longer than it lasts (a CRF session of 200 reinforcers of 0.05 s takes about 60 s):
+
+```bash
+sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O vcd -o run.vcd
+```
+
+`--time` is in milliseconds. Copy the VCD to the computer that runs the analysis. Without `-o`, sigrok-cli writes the VCD to standard output, so it can also be run over SSH from the host and redirected to a local file there; nothing is then written on the analyzer's computer.
 
 ### Known constraints
 
 - **macOS asks to allow each new accessory connection.** Each time the Teensy is plugged in again (including the re-enumeration during an upload), macOS may show "Allow accessory to connect?". Until it is allowed, uploading fails with `Operation not permitted` or `Unable to open device`. To avoid the prompt, set System Settings → Privacy & Security → Accessories → "Allow accessories to connect" to "Automatically allow when unlocked" ([Apple Support](https://support.apple.com/en-us/102282)).
 - **A timed-out upload can leave `teensy_loader_cli` holding the board.** Stop the leftover process (`pgrep -fl teensy_loader`) before the next upload.
-- **The `ts` from the device is not yet usable as the session time.** The transmission delay can put a response time before the host's last tick, and the schedule then stops with `ScheduleStateError: Non-monotonic time`. Until the host stamps responses on receipt, stamp them on the host side.
+- **The Teensy's clock and the host's are not aligned.** `sync` sets the device's origin to the host's time, the two clocks are not kept together after that, and the latency from the host writing a command to the device receiving it cannot be read from one side. The analyzer and the device report measure only what happens at the device.
 
 ## For AI coding agents
 
