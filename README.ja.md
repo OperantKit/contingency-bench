@@ -105,6 +105,9 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 | ホスト → 機器 | `{"cmd":"sync","t":<s>}` | 反応を始める。`t` はいまのホストの時計で、以後の `ts` は `t` に Teensy の経過時間を足した値。遅れの記録を消す |
 | ホスト → 機器 | `{"cmd":"stop"}` | 反応を止める |
 | ホスト → 機器 | `{"cmd":"report"}` | `{"kind":"report","n":<n>,"lat_us":[...]}` を返す。強化子の命令ごとに、直前の反応から命令が届くまでのマイクロ秒（最大 2000 件） |
+| ホスト → 機器 | `{"cmd":"proto","p":"rs","duration":<s>}` | セッションの行を [contingency-rs](https://github.com/OperantKit/contingency-rs) のシリアル接続の形式（下記）に切り替える。`D` の行で給餌器を `duration` 秒 ON にする（指定するまでは 0.05）。`{"cmd":"proto","p":"json"}` で戻す |
+
+`proto rs` の後は、反応は `R 0` の行になり、機器は `D <channel> <magnitude>` を強化子の命令として受け取ります（`sync`・`stop`・`report`・`proto` は JSON のまま）。report は両方の形式で同じに測るので、同じ基板で Python のホストと Rust のホストを比べられます。`R` の行は機器の時刻を持ちません。
 
 模擬の被験体は、給餌器が ON の間は反応しません。次の反応は前の反応の 300 ms 後です。
 
@@ -127,6 +130,8 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 | `--max-duration` | この秒数で打ち切る（既定 600） |
 
 セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms`（反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値）と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
+
+同じ CRF のセッションは、contingency-rs の `contingency-hil-serial` バイナリで Rust からも回せます（`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`）。`proto rs` で基板を切り替え、contingency-rs の CRF をシリアル接続で回し、同じキーの要約を書きます。こちらの `host_minus_device_ms` は空です。
 
 ### 遅れの解析
 

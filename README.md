@@ -105,6 +105,9 @@ One JSON object per line, in both directions, over USB serial.
 | host → device | `{"cmd":"sync","t":<s>}` | Start responding. `t` is the host's clock now; later `ts` values are `t` plus the Teensy's elapsed time. Clears the latency log |
 | host → device | `{"cmd":"stop"}` | Stop responding |
 | host → device | `{"cmd":"report"}` | Reply `{"kind":"report","n":<n>,"lat_us":[...]}`: for each reinforcer command, the microseconds from the response it followed to its arrival (up to 2000) |
+| host → device | `{"cmd":"proto","p":"rs","duration":<s>}` | Switch the session lines to the format of the [contingency-rs](https://github.com/OperantKit/contingency-rs) serial backend (below); `D` lines turn the feeder on for `duration` seconds (0.05 until set). `{"cmd":"proto","p":"json"}` switches back |
+
+After `proto rs`, a response is the line `R 0` and the device takes `D <channel> <magnitude>` as a reinforcer command (`sync`, `stop`, `report` and `proto` stay JSON). The report is measured the same way in both formats, so a Python host and a Rust host can be compared on the same board. The `R` line carries no device time.
 
 The simulated subject does not respond while the feeder is on. The next response comes 300 ms after the previous one.
 
@@ -127,6 +130,8 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 | `--max-duration` | Give up after this many seconds (default 600) |
 
 Before the session the device is stopped and the input buffer cleared; `sync` then starts the simulated subject. Session time is the host clock: each response is stamped when `drive` hands it to the session, and the device's own time is kept as a record. After the session the device is stopped again and its `report` fetched; `drive` closes the port, so it is opened once more for that. The summary JSON holds `finished`, `n_reinforcers`, `n_responses`, `elapsed_s`, `host_minus_device_ms` (receipt time minus the device's `ts` for each response; the two clocks are only joined by `sync`, so this is the transmission delay plus a fixed offset) and the device report under `"device"`, which `contingency-bench-hil-latency --device-report` reads. The command exits with 1 if the session did not reach the reinforcer count or the device did not report. The same run is available as `run_crf` in `contingency_bench.hil_crf`.
+
+The same CRF session can be run from Rust with the `contingency-hil-serial` binary of contingency-rs (`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`). It switches the board with `proto rs`, runs a contingency-rs CRF through its serial backend, and writes a summary with the same keys; `host_minus_device_ms` is empty there.
 
 ### Latency analysis
 

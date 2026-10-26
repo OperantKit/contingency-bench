@@ -7,6 +7,12 @@
 //   {"cmd":"sync","t":<host monotonic s>}  start pressing; ts are offset to the host clock
 //   {"cmd":"stop"}                          stop pressing
 //   {"cmd":"report"}                        dump press->command latencies (us)
+//   {"cmd":"proto","p":"rs","duration":<s>} speak the contingency-rs SerialApparatus protocol
+//   {"cmd":"proto","p":"json"}              back to the experiment-io format (the default)
+// contingency-rs SerialApparatus format (after proto rs; the control commands above stay JSON):
+//   device -> host: R 0
+//   host -> device: D <channel> <magnitude>  feeder on for the proto duration
+// The report is the same in both formats.
 //
 // Pins: 2 = feeder (HIGH while the reinforcer is on), 3 = lever-press marker (1 ms pulse).
 // The simulated subject presses every kPressPeriodUs, never while the feeder is on.
@@ -29,6 +35,9 @@ static uint32_t seq = 0;
 static uint32_t last_press_us = 0;
 static bool awaiting_cmd = false;
 
+static bool proto_rs = false;
+static double rs_duration_s = 0.05;
+
 static bool feeder_on = false;
 static uint32_t feeder_start_us = 0;
 static uint32_t feeder_len_us = 0;
@@ -50,16 +59,26 @@ static double field_number(const char* s, const char* key) {
     return p ? atof(p + 1) : -1.0;
 }
 
+static void start_feeder(double dur, uint32_t now_us) {
+    digitalWriteFast(kFeederPin, HIGH);
+    feeder_on = true;
+    feeder_start_us = now_us;
+    feeder_len_us = (uint32_t)(dur * 1e6);
+    if (awaiting_cmd && n_lat < kMaxLog) lat_us[n_lat++] = now_us - last_press_us;
+    awaiting_cmd = false;
+}
+
 static void handle_line(const char* s, uint32_t now_us) {
-    if (strstr(s, "\"reinforcer\"")) {
+    if (s[0] == 'D' && s[1] == ' ') {
+        start_feeder(rs_duration_s, now_us);
+    } else if (strstr(s, "\"reinforcer\"")) {
         double dur = field_number(s, "\"duration\"");
         if (dur < 0) dur = 0.5;
-        digitalWriteFast(kFeederPin, HIGH);
-        feeder_on = true;
-        feeder_start_us = now_us;
-        feeder_len_us = (uint32_t)(dur * 1e6);
-        if (awaiting_cmd && n_lat < kMaxLog) lat_us[n_lat++] = now_us - last_press_us;
-        awaiting_cmd = false;
+        start_feeder(dur, now_us);
+    } else if (strstr(s, "\"proto\"")) {
+        proto_rs = strstr(s, "\"rs\"") != nullptr;
+        const double dur = field_number(s, "\"duration\"");
+        if (dur >= 0) rs_duration_s = dur;
     } else if (strstr(s, "\"sync\"")) {
         sync_host_s = field_number(s, "\"t\"");
         sync_us = now_us;
@@ -116,8 +135,13 @@ void loop() {
         press_pulse_start = t;
         last_press_us = t;
         awaiting_cmd = true;
-        Serial.printf("{\"op\":0,\"ts\":%.6f,\"kind\":\"response\",\"seq\":%lu}\n", host_ts(t),
-                      (unsigned long)seq++);
+        if (proto_rs) {
+            Serial.print("R 0\n");
+            seq++;
+        } else {
+            Serial.printf("{\"op\":0,\"ts\":%.6f,\"kind\":\"response\",\"seq\":%lu}\n",
+                          host_ts(t), (unsigned long)seq++);
+        }
         next_press_us = t + kPressPeriodUs;
     }
 }
