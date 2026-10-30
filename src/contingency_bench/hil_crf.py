@@ -18,6 +18,12 @@ Teensy) is fetched. ``drive`` closes the port when it returns, so the port is
 opened again for that. The summary JSON holds the report under ``"device"``,
 which is what ``contingency-bench-hil-latency --device-report`` reads.
 
+With ``realtime=True`` (``--realtime``), ``drive`` runs inside
+``experiment_io.realtime.time_constraint(poll_interval)``: on macOS the host
+loop's thread gets the time-constraint scheduling policy for the session and
+the standard policy back afterwards. Whether the policy was applied is kept
+under ``"realtime"`` in the summary; not getting it does not fail the run.
+
 Requires the ``hil`` extra (pyserial and the OperantKit packages).
 """
 
@@ -28,6 +34,7 @@ import json
 import sys
 import time
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,10 +62,17 @@ class HilRun:
     elapsed_s: float
     host_minus_device_ms: list[float] = field(default_factory=list)
     device: dict[str, Any] | None = None
+    realtime: dict[str, Any] | None = None
 
 
 def _default_clock() -> Clock:
     return time.monotonic
+
+
+def _time_constraint(period_s: float) -> AbstractContextManager[Any]:
+    from experiment_io.realtime import time_constraint
+
+    return time_constraint(period_s)
 
 
 def _open_serial(path: str, baud: int) -> Port:
@@ -135,11 +149,13 @@ def run_crf(
     poll_interval: float = 0.001,
     max_duration: float = DEFAULT_MAX_DURATION_S,
     report_timeout: float = DEFAULT_REPORT_TIMEOUT_S,
+    realtime: bool = False,
 ) -> HilRun:
     """Run a session on the device behind ``open_port`` until ``reinforcers``.
 
     ``open_port`` is called twice: once for the session (``drive`` closes it)
-    and once to stop the device and fetch its report.
+    and once to stop the device and fetch its report. ``realtime`` runs
+    ``drive`` on a time-constraint thread with period ``poll_interval``.
     """
     from experiment_core import ReinforcementCountExit
     from experiment_io import drive
@@ -187,17 +203,27 @@ def run_crf(
     t0 = clock()
     runner.start(start_time=t0)
     _send(port, {"cmd": "sync", "t": t0})
-    drive(
-        runner,
-        operanda=[SerialOperandum(port, 0)],
-        reinforcers=[SerialReinforcer(port, 0)],
-        clock=clock,
-        reinforcer_duration=reinforcer_duration,
-        max_steps=2**62,
-        max_duration=max_duration,
-        poll_interval=poll_interval,
-        on_response=record,
-    )
+
+    def run_drive() -> None:
+        drive(
+            runner,
+            operanda=[SerialOperandum(port, 0)],
+            reinforcers=[SerialReinforcer(port, 0)],
+            clock=clock,
+            reinforcer_duration=reinforcer_duration,
+            max_steps=2**62,
+            max_duration=max_duration,
+            poll_interval=poll_interval,
+            on_response=record,
+        )
+
+    realtime_result: dict[str, Any] | None = None
+    if realtime:
+        with _time_constraint(poll_interval) as result:
+            realtime_result = asdict(result)
+            run_drive()
+    else:
+        run_drive()
     elapsed = clock() - t0
 
     report_port = open_port()
@@ -216,6 +242,7 @@ def run_crf(
         elapsed_s=round(elapsed, 3),
         host_minus_device_ms=lags_ms,
         device=device,
+        realtime=realtime_result,
     )
 
 
@@ -239,6 +266,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--summary", type=Path, help="Write the summary JSON here.")
     parser.add_argument("--max-duration", type=float, default=DEFAULT_MAX_DURATION_S)
     parser.add_argument("--report-timeout", type=float, default=DEFAULT_REPORT_TIMEOUT_S)
+    parser.add_argument(
+        "--realtime",
+        action="store_true",
+        help="Run the host loop on a macOS time-constraint thread (period = 1 ms poll interval).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -251,6 +283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             okl_path=args.okl,
             max_duration=args.max_duration,
             report_timeout=args.report_timeout,
+            realtime=args.realtime,
         )
     except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -266,6 +299,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if not run.finished:
         print("warning: the session did not reach the reinforcer count", file=sys.stderr)
+    if run.realtime is not None and not run.realtime["applied"]:
+        print(f"warning: --realtime not applied: {run.realtime['reason']}", file=sys.stderr)
     if run.device is None:
         print("warning: no report from the device", file=sys.stderr)
     return 0 if run.finished and run.device is not None else 1

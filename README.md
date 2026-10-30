@@ -65,6 +65,7 @@ The command line runs the same procedure: `contingency-bench --mock --steps 50`.
 - **Only Anthropic models** are built in. Other models need a subclass of `BaseLLMClient`.
 - **Failed calls become random choices.** If the API call fails (a warning is logged), or the answer contains both `1` and `2` or neither (nothing is logged), the trial is answered at random. The number of such trials is not reported.
 - **The hardware runner has one operandum and one feeder,** as the fake chamber has. Concurrent schedules are not wired to it.
+- **`--realtime` is macOS only and is not guaranteed.** The time-constraint thread needs no administrator rights, but the kernel puts a thread that runs past its computation time back on the standard policy. Elsewhere it does nothing and the run goes on.
 
 ## Hardware (Teensy 4.1)
 
@@ -128,6 +129,7 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 | `--duration` | Reinforcer duration in seconds, sent in each reinforcer command (default 0.05) |
 | `--okl` / `--summary` | Write the OKL log / the summary JSON |
 | `--max-duration` | Give up after this many seconds (default 600) |
+| `--realtime` | Run the host loop on a macOS time-constraint thread (experiment-io `time_constraint`, period = the 1 ms poll interval); the summary's `realtime` says whether it was applied |
 
 Before the session the device is stopped and the input buffer cleared; `sync` then starts the simulated subject. Session time is the host clock: each response is stamped when `drive` hands it to the session, and the device's own time is kept as a record. After the session the device is stopped again and its `report` fetched; `drive` closes the port, so it is opened once more for that. The summary JSON holds `finished`, `n_reinforcers`, `n_responses`, `elapsed_s`, `host_minus_device_ms` (receipt time minus the device's `ts` for each response; the two clocks are only joined by `sync`, so this is the transmission delay plus a fixed offset) and the device report under `"device"`, which `contingency-bench-hil-latency --device-report` reads. The command exits with 1 if the session did not reach the reinforcer count or the device did not report. The same run is available as `run_crf` in `contingency_bench.hil_crf`.
 

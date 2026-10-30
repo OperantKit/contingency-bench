@@ -233,3 +233,114 @@ def test_the_cli_exits_1_when_the_session_does_not_finish(
     )
 
     assert code == 1
+
+
+class _FakeRealtime:
+    """Records when the time-constraint block is entered and left."""
+
+    def __init__(self, port: _FakeChamberPort, applied: bool = True) -> None:
+        self.port = port
+        self.applied = applied
+        self.periods: list[float] = []
+        self.entered_at: int | None = None
+        self.exited_at: int | None = None
+
+    def __call__(self, period_s: float):
+        from contextlib import contextmanager
+
+        from experiment_io.realtime import RealtimeResult
+
+        @contextmanager
+        def block():
+            self.periods.append(period_s)
+            self.entered_at = len(self.port.commands)
+            try:
+                if self.applied:
+                    yield RealtimeResult(True, 0, "")
+                else:
+                    yield RealtimeResult(False, 4, "thread_policy_set returned 4")
+            finally:
+                self.exited_at = len(self.port.commands)
+
+        return block()
+
+
+def test_realtime_wraps_drive_with_a_time_constraint_of_the_poll_interval(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from contingency_bench import hil_crf
+
+    clock = ManualClock()
+    port = _FakeChamberPort(clock)
+    fake = _FakeRealtime(port)
+    monkeypatch.setattr(hil_crf, "_time_constraint", fake)
+
+    run = run_crf(
+        _opener(port),
+        reinforcers=3,
+        reinforcer_duration=0.05,
+        clock=clock,
+        poll_interval=0.002,
+        realtime=True,
+    )
+
+    assert fake.periods == [0.002]
+    kinds = [c["cmd"] for c in port.commands]
+    # Entered after the sync and before the first reinforcer; left before the report.
+    assert fake.entered_at == kinds.index("sync") + 1
+    assert fake.exited_at is not None
+    assert kinds[fake.exited_at :] == ["stop", "report"]
+    assert run.finished
+    assert run.realtime == {"applied": True, "kern_return": 0, "reason": ""}
+
+
+def test_realtime_is_off_by_default(monkeypatch: pytest.MonkeyPatch):
+    from contingency_bench import hil_crf
+
+    clock = ManualClock()
+    port = _FakeChamberPort(clock)
+    fake = _FakeRealtime(port)
+    monkeypatch.setattr(hil_crf, "_time_constraint", fake)
+
+    run = run_crf(_opener(port), reinforcers=2, reinforcer_duration=0.05, clock=clock)
+
+    assert fake.periods == []
+    assert run.realtime is None
+
+
+def test_the_cli_realtime_flag_records_whether_it_was_applied(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from contingency_bench import hil_crf
+
+    clock = ManualClock()
+    port = _FakeChamberPort(clock)
+    fake = _FakeRealtime(port, applied=False)
+    monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
+    monkeypatch.setattr(hil_crf, "_default_clock", lambda: clock)
+    monkeypatch.setattr(hil_crf, "_time_constraint", fake)
+    summary = tmp_path / "host.json"
+
+    code = main(
+        [
+            "--port",
+            "/dev/fake",
+            "--reinforcers",
+            "2",
+            "--duration",
+            "0.05",
+            "--summary",
+            str(summary),
+            "--realtime",
+        ]
+    )
+
+    # Not getting the policy does not fail the run; the summary says so.
+    assert code == 0
+    assert fake.periods == [0.001]
+    data = json.loads(summary.read_text())
+    assert data["realtime"] == {
+        "applied": False,
+        "kern_return": 4,
+        "reason": "thread_policy_set returned 4",
+    }

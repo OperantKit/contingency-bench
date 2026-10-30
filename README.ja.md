@@ -65,6 +65,7 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 - **組み込みは Anthropic のモデルだけ**です。他のモデルには `BaseLLMClient` のサブクラスが要ります。
 - **失敗した呼び出しは無作為の選択になります。** API の呼び出しが失敗したとき（警告がログに出ます）や、答えに `1` と `2` の両方が含まれるか、どちらも含まれないとき（何もログに出ません）、その試行は無作為に答えられます。そうなった試行の数は報告されません。
 - **実機の実行の道具は、操作体 1 つ・給餌器 1 つです。** 偽のオペラント箱がそうだからです。並立スケジュールはつないでいません。
+- **`--realtime` は macOS だけで、効く保証はありません。** 時間制約スレッドは管理者権限なしで取れますが、計算時間を超えて動き続けたスレッドはカーネルが標準のポリシーへ戻します。macOS 以外では何もせず、実行はそのまま続きます。
 
 ## 実機（Teensy 4.1）
 
@@ -128,6 +129,7 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 | `--duration` | 強化子の長さ（秒）。強化子の命令ごとに送る（既定 0.05） |
 | `--okl` / `--summary` | OKL のログ／要約の JSON を書く |
 | `--max-duration` | この秒数で打ち切る（既定 600） |
+| `--realtime` | ホストのループを macOS の時間制約スレッドで回す（experiment-io の `time_constraint`、周期 = 1 ms の poll 間隔）。適用できたかは要約の `realtime` に残る |
 
 セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms`（反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値）と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
 
