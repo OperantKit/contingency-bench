@@ -168,10 +168,18 @@ def run_crf(
         raise ValueError("reinforcers must be >= 1")
     clock = clock or _default_clock()
     schedule = _build_schedule(dsl)
-    metadata = {"dsl": dsl, "backend": "serial", "reinforcer_duration_s": reinforcer_duration}
+    metadata = {
+        "dsl": dsl,
+        "backend": "serial",
+        "decision": "host",
+        "reinforcer_duration_s": reinforcer_duration,
+    }
 
     sinks = []
     if okl_path is not None:
+        from contingency_bench.hil_device import check_decision_clock
+
+        check_decision_clock("host", "monotonic")
         okl = OklSink(okl_path)
         okl.write_header(
             session_name="hil-crf", clock_type="monotonic", session_start=clock(), metadata=metadata
@@ -271,7 +279,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Run the host loop on a macOS time-constraint thread (period = 1 ms poll interval).",
     )
+    parser.add_argument(
+        "--decision",
+        choices=("host", "device"),
+        default="host",
+        help="Where the contingency is decided: on the host (default) or on the device "
+        "(CRF and FR only; anything else stops before the session with exit code 2).",
+    )
     args = parser.parse_args(argv)
+
+    if args.decision == "device":
+        return _main_device(args)
 
     try:
         run = run_crf(
@@ -301,6 +319,47 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("warning: the session did not reach the reinforcer count", file=sys.stderr)
     if run.realtime is not None and not run.realtime["applied"]:
         print(f"warning: --realtime not applied: {run.realtime['reason']}", file=sys.stderr)
+    if run.device is None:
+        print("warning: no report from the device", file=sys.stderr)
+    return 0 if run.finished and run.device is not None else 1
+
+
+def _main_device(args: argparse.Namespace) -> int:
+    """``--decision device``: the Teensy decides; refuse unsupported schedules up front."""
+    from contingency_bench.hil_device import run_device
+
+    if args.realtime:
+        print(
+            "error: --realtime applies to the host loop; drop it with --decision device",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        run = run_device(
+            lambda: _open_serial(args.port, args.baud),
+            dsl=args.dsl,
+            reinforcers=args.reinforcers,
+            reinforcer_duration=args.duration,
+            clock=_default_clock(),
+            okl_path=args.okl,
+            max_duration=args.max_duration,
+            report_timeout=args.report_timeout,
+        )
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    summary = asdict(run)
+    if args.summary is not None:
+        args.summary.write_text(json.dumps(summary) + "\n")
+    device_n = run.device.get("n") if run.device else None
+    print(
+        f"decision=device finished={run.finished} reinforcers={run.n_reinforcers}/"
+        f"{run.target_reinforcers} responses={run.n_responses} elapsed={run.elapsed_s} s "
+        f"seq_gaps={run.seq_gaps} device_report_n={device_n}"
+    )
+    if run.seq_gaps:
+        print(f"warning: {run.seq_gaps} device events were lost (seq gaps)", file=sys.stderr)
     if run.device is None:
         print("warning: no report from the device", file=sys.stderr)
     return 0 if run.finished and run.device is not None else 1
