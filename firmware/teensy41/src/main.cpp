@@ -13,16 +13,21 @@
 //   device -> host: R 0
 //   host -> device: D <channel> <magnitude>  feeder on for the proto duration
 //
-// Device mode (the device decides; only CRF and FR):
-//   {"cmd":"load","schedule":{"type":"FR","params":{"n":5}},
+// Device mode (the device decides with contingency-rs, linked from rust/):
+//   {"cmd":"load","schedule":{"type":"VI","params":{"mean_interval":30,"seed":7}},
 //    "reinforcer":{"op":0,"duration":<s>},"stop_after":{"reinforcers":<n>,"seconds":<s>}}
-//       -> {"kind":"loaded",...} or {"kind":"error","code":"unsupported_schedule"|"bad_params",...}
+//       -> {"kind":"loaded","schedule":{...},"firmware":...} or {"kind":"error","code":
+//          "unsupported_schedule"|"missing_seed"|"bad_params"|"bad_request",...}
+//       schedule is the conformance-fixture {type, params}; random schedules need params.seed.
 //   {"cmd":"probe","now":<s>,"event":null|{"operandum":"main",...}}  one step, no real time,
 //       only before start  -> {"kind":"outcome","reinforced":...,"reinforcer":{...}}
-//   {"cmd":"start"}  -> {"kind":"started","ts":<s>}; pressing begins
+//   {"cmd":"start"}  -> {"kind":"started","ts":<s>}; the schedule is reset, pressing begins
 //   {"cmd":"stop"}   -> {"kind":"stopped","ts":<s>,"n_responses":<n>,"n_reinforcers":<n>}
 //   events: response {op,ts,seq,reinforced}, reinforcer_start {op,ts,seq},
 //           reinforcer_end {op,ts,seq}, stopped (also when stop_after is met)
+//   Between presses the schedule is stepped without an event every kTickUs, so time-based
+//   schedules (FT, VT, RT, limited hold) deliver on their own; such a reinforcer_start has
+//   no response before it.
 //   ts is the device clock in seconds (micros() extended to 64 bits, never reset);
 //   seq goes up by 1 for every event line. "reinforcer" is refused with an error.
 //
@@ -34,12 +39,15 @@
 
 #include <Arduino.h>
 
+#include "bench_decide.h"
+
 static const uint8_t kFeederPin = 2;
 static const uint8_t kPressPin = 3;
 static const uint32_t kPressPeriodUs = 300000;
 static const uint32_t kPressPulseUs = 1000;
 static const size_t kMaxLog = 2000;
-static const char* kFirmwareId = "contingency-bench-teensy41-crf-fr";
+static const uint32_t kTickUs = 1000;
+static const char* kFirmwareId = "contingency-bench-teensy41-contingency-rs";
 
 static bool active = false;
 static double sync_host_s = 0.0;
@@ -61,15 +69,14 @@ static uint32_t feeder_len_us = 0;
 static uint32_t lat_us[kMaxLog];
 static size_t n_lat = 0;
 
-static char line[512];
+static char line[1024];
+static char reply[512];
 static size_t line_len = 0;
 
 // Device mode state.
 static bool loaded = false;
 static bool device_mode = false;  // a loaded schedule is running (between start and stopped)
-static uint32_t ratio_n = 1;
-static uint32_t ratio_count = 0;
-static uint32_t probe_count = 0;
+static uint32_t next_tick_us = 0;
 static double dev_duration_s = 0.05;
 static long stop_reinforcers = -1;
 static double stop_seconds = -1.0;
@@ -134,38 +141,51 @@ static void start_feeder(double dur, uint32_t now_us) {
     awaiting_cmd = false;
 }
 
+static const char* error_code(int rc) {
+    switch (rc) {
+        case BD_UNSUPPORTED: return "unsupported_schedule";
+        case BD_BAD_PARAMS: return "bad_params";
+        case BD_MISSING_SEED: return "missing_seed";
+        case BD_NO_ROOM: return "no_room";
+        default: return "bad_request";
+    }
+}
+
+// emit_error() with the message of the last contingency-rs error, quotes and controls escaped.
+static void emit_bd_error(int rc) {
+    const char* m = bd_error();
+    char msg[200];
+    size_t k = 0;
+    for (; m && *m && k < sizeof(msg) - 2; m++) {
+        const char c = *m;
+        if (c == '"' || c == '\\') msg[k++] = '\\';
+        msg[k++] = (c >= 0 && c < 0x20) ? ' ' : c;
+    }
+    msg[k] = '\0';
+    emit_error(error_code(rc), msg);
+}
+
+// Number `key` inside the object that follows `outer`, or -1.
+static double nested_number(const char* s, const char* outer, const char* key) {
+    const char* p = value_of(s, outer);
+    return p && *p == '{' ? field_number(p, key) : -1.0;
+}
+
 static void handle_load(const char* s) {
     loaded = false;
-    const char* t = value_of(s, "\"type\"");
-    if (!t || *t != '"') {
-        emit_error("bad_params", "schedule.type missing");
+    const int rc = bd_load(s, strlen(s));
+    if (rc != BD_OK) {
+        emit_bd_error(rc);
         return;
     }
-    if (strncmp(t, "\"CRF\"", 5) == 0) {
-        ratio_n = 1;
-    } else if (strncmp(t, "\"FR\"", 4) == 0) {
-        const double n = field_number(s, "\"n\"");
-        if (n < 1.0 || n != (double)(uint32_t)n) {
-            emit_error("bad_params", "FR needs an integer params.n >= 1");
-            return;
-        }
-        ratio_n = (uint32_t)n;
-    } else {
-        emit_error("unsupported_schedule", "this firmware decides CRF and FR only");
-        return;
-    }
-    const double dur = field_number(s, "\"duration\"");
+    const double dur = nested_number(s, "\"reinforcer\"", "\"duration\"");
     dev_duration_s = dur >= 0 ? dur : 0.05;
-    const double r = field_number(s, "\"reinforcers\"");
+    const double r = nested_number(s, "\"stop_after\"", "\"reinforcers\"");
     stop_reinforcers = r >= 1.0 ? (long)r : -1;
-    stop_seconds = field_number(s, "\"seconds\"");
-    ratio_count = 0;
-    probe_count = 0;
+    stop_seconds = nested_number(s, "\"stop_after\"", "\"seconds\"");
     loaded = true;
-    Serial.printf("{\"kind\":\"loaded\",\"schedule\":{\"type\":\"%s\",\"n\":%lu},"
-                  "\"firmware\":\"%s\",\"supported\":[\"CRF\",\"FR\"]}\n",
-                  ratio_n == 1 && strncmp(t, "\"CRF\"", 5) == 0 ? "CRF" : "FR",
-                  (unsigned long)ratio_n, kFirmwareId);
+    Serial.printf("{\"kind\":\"loaded\",\"schedule\":%s,\"firmware\":\"%s\"}\n", bd_schedule_json(),
+                  kFirmwareId);
 }
 
 static void handle_probe(const char* s) {
@@ -173,23 +193,13 @@ static void handle_probe(const char* s) {
         emit_error("bad_state", "probe needs a loaded schedule and no running session");
         return;
     }
-    const double now = field_number(s, "\"now\"");
-    const char* ev = value_of(s, "\"event\"");
-    bool reinforced = false;
-    if (ev && *ev == '{') {
-        probe_count++;
-        if (probe_count >= ratio_n) {
-            probe_count = 0;
-            reinforced = true;
-        }
+    const int rc = bd_probe(s, strlen(s), reply, sizeof(reply));
+    if (rc != BD_OK) {
+        emit_bd_error(rc);
+        return;
     }
-    if (reinforced) {
-        Serial.printf("{\"kind\":\"outcome\",\"reinforced\":true,\"reinforcer\":"
-                      "{\"time\":%.6f,\"magnitude\":1.0,\"label\":\"SR+\"}}\n",
-                      now);
-    } else {
-        Serial.print("{\"kind\":\"outcome\",\"reinforced\":false}\n");
-    }
+    Serial.print(reply);
+    Serial.print("\n");
 }
 
 static void handle_start(uint32_t now_us) {
@@ -204,17 +214,19 @@ static void handle_start(uint32_t now_us) {
     seq = 0;
     n_responses = 0;
     n_reinforcers = 0;
-    ratio_count = 0;
     awaiting_cmd = false;
+    bd_reset();  // probes before start must not carry into the session
     start_ts = device_s(now_us);
     Serial.printf("{\"kind\":\"started\",\"ts\":%.6f,\"seq\":%lu}\n", start_ts, (unsigned long)seq++);
     next_press_us = now_us + kPressPeriodUs;
+    next_tick_us = now_us + kTickUs;
 }
 
 static void finish_device(uint32_t now_us) {
     active = false;
     device_mode = false;
     loaded = false;
+    bd_unload();
     emit_stopped(now_us);
 }
 
@@ -256,22 +268,40 @@ static void handle_line(const char* s, uint32_t now_us) {
     }
 }
 
+static void device_reinforce() {
+    start_feeder(dev_duration_s, micros());
+    n_reinforcers++;
+}
+
+static void emit_reinforcer_start() {
+    Serial.printf("{\"kind\":\"reinforcer_start\",\"op\":0,\"ts\":%.6f,\"seq\":%lu}\n",
+                  device_s(feeder_start_us), (unsigned long)seq++);
+}
+
 // A press in device mode: decide, turn the feeder on first, then report the events.
 static void device_press(uint32_t t) {
     n_responses++;
-    ratio_count++;
-    const bool reinforced = ratio_count >= ratio_n;
-    if (reinforced) {
-        ratio_count = 0;
-        start_feeder(dev_duration_s, micros());
-        n_reinforcers++;
-    }
-    const uint32_t on_us = feeder_start_us;
+    BdOutcome out;
+    const int rc = bd_step(device_s(t), true, &out);
+    const bool reinforced = rc == BD_OK && out.reinforced;
+    if (reinforced) device_reinforce();
     Serial.printf("{\"kind\":\"response\",\"op\":0,\"ts\":%.6f,\"seq\":%lu,\"reinforced\":%s}\n",
                   device_s(t), (unsigned long)seq++, reinforced ? "true" : "false");
-    if (reinforced) {
-        Serial.printf("{\"kind\":\"reinforcer_start\",\"op\":0,\"ts\":%.6f,\"seq\":%lu}\n",
-                      device_s(on_us), (unsigned long)seq++);
+    if (rc != BD_OK) emit_bd_error(rc);
+    if (reinforced) emit_reinforcer_start();
+}
+
+// No response: let time-based schedules deliver on their own.
+static void device_tick(uint32_t t) {
+    BdOutcome out;
+    const int rc = bd_step(device_s(t), false, &out);
+    if (rc != BD_OK) {
+        emit_bd_error(rc);
+        return;
+    }
+    if (out.reinforced) {
+        device_reinforce();
+        emit_reinforcer_start();
     }
 }
 
@@ -319,6 +349,12 @@ void loop() {
     if (device_mode && stop_seconds > 0 && device_s(micros()) - start_ts >= stop_seconds &&
         !feeder_on) {
         finish_device(micros());
+    }
+
+    if (device_mode && !feeder_on && (int32_t)(micros() - next_tick_us) >= 0) {
+        const uint32_t t = micros();
+        device_tick(t);
+        next_tick_us = t + kTickUs;
     }
 
     if (active && !feeder_on && (int32_t)(now - next_press_us) >= 0) {

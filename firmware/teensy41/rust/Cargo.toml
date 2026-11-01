@@ -1,0 +1,29 @@
+[package]
+name = "bench-decide"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Schedule decisions for the contingency-bench Teensy firmware: builds a contingency-rs schedule from a `load` line and steps it from C++."
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# no_std + alloc build of the schedule core. `c-runtime` brings the
+# global allocator (C malloc/memalign/free) and the panic handler
+# (abort), so this crate defines neither. The firmware build script
+# (firmware/teensy41/build_rust.py) points this at a local checkout
+# with CONTINGENCY_RS_DIR when one is given.
+contingency = { git = "https://github.com/OperantKit/contingency-rs", default-features = false, features = ["c-runtime"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"
