@@ -7,7 +7,9 @@ cannot decide stops the run before it starts — before the OKL file is
 created and before ``start`` is sent — with a message that says how to run
 it on the host instead.
 
-The firmware in ``firmware/teensy41`` decides CRF and FR. The host sends
+The firmware in ``firmware/teensy41`` decides every atomic schedule
+(:data:`SUPPORTED_ON_DEVICE`); a random one needs a seed in the DSL
+(``@algorithm("fleshler-hoffman", seed=N)``). The host sends
 ``load`` (``schedule: {type, params}`` in the conformance fixture form, the
 reinforcer duration and ``stop_after``), then ``start``, and turns the
 device's events into OKL lines. Session time is the device clock: the
@@ -31,7 +33,8 @@ from typing import Any
 
 DECISIONS = ("host", "device")
 DEVICE_CLOCK_TYPE = "device"
-SUPPORTED_ON_DEVICE = ("CRF", "FR")
+SUPPORTED_ON_DEVICE = ("CRF", "EXT", "FR", "VR", "RR", "FI", "VI", "RI", "FT", "VT", "RT")
+SEEDED_ON_DEVICE = ("VR", "RR", "VI", "RI", "VT", "RT")
 _REPLY_TIMEOUT_S = 2.0
 _POLL_S = 0.001
 _SETTLE_S = 0.2
@@ -62,25 +65,59 @@ def check_decision_clock(decision: str, clock_type: str) -> None:
         raise ValueError('decision = "host" runs on the host clock, not clock_type = "device"')
 
 
-def device_schedule(dsl: str) -> dict[str, Any]:
-    """Map a contingency-dsl expression to the ``load`` schedule, or refuse it."""
+def _parse_spec(dsl: str) -> dict[str, Any]:
+    from contingency.bridge.spec import to_spec
     from contingency_dsl import parse
+    from contingency_dsl.annotations.apparatus.extension import ApparatusExtension
+    from contingency_dsl.annotations.measurement.extension import MeasurementExtension
+    from contingency_dsl.annotations.stimulus.extension import StimulusExtension
+    from contingency_dsl.annotations.subjects.extension import SubjectsExtension
+    from contingency_dsl.annotations.temporal.extension import TemporalExtension
+    from contingency_dsl.extensions import ExtensionRegistry
 
+    registry = ExtensionRegistry.build(
+        ApparatusExtension(),
+        MeasurementExtension(),
+        StimulusExtension(),
+        SubjectsExtension(),
+        TemporalExtension(),
+    )
+    spec = to_spec(parse(dsl, extensions=registry))
+    if not isinstance(spec, dict):
+        raise TypeError(f"to_spec returned {type(spec).__name__}, not a dict")
+    return spec
+
+
+def device_schedule(dsl: str) -> dict[str, Any]:
+    """Map a contingency-dsl expression to the ``load`` schedule, or refuse it.
+
+    Every atomic schedule maps to its conformance-fixture spec. A random one
+    (:data:`SEEDED_ON_DEVICE`) needs a seed, because the device has no
+    entropy source: without ``@algorithm(..., seed=N)`` it is refused here,
+    before anything starts, rather than by the device.
+    """
     try:
-        schedule = parse(dsl).schedule
-    except Exception as exc:  # the parser's own errors carry the detail
-        raise DeviceUnsupportedError(_host_hint(dsl, f"not parsed: {exc}")) from exc
-    kind = type(schedule).__name__
-    if kind == "Special" and getattr(schedule, "kind", None) == "CRF":
-        return {"type": "CRF", "params": {}}
-    if kind == "Atomic":
-        st = schedule.schedule_type
-        if st.distribution.value == "F" and st.domain.value == "R":
-            n = float(schedule.value)
-            if n >= 1 and n.is_integer():
-                return {"type": "FR", "params": {"n": int(n)}}
+        spec = _parse_spec(dsl)
+    except Exception as exc:  # the parser's and to_spec's own errors carry the detail
+        raise DeviceUnsupportedError(_host_hint(dsl, f"not mapped: {exc}")) from exc
+    kind = spec.get("type")
+    if kind not in SUPPORTED_ON_DEVICE:
+        raise DeviceUnsupportedError(
+            _host_hint(dsl, f"{kind} is not an atomic schedule this firmware decides")
+        )
+    params = dict(spec.get("params", {}))
+    if kind == "FR":
+        n = float(params.get("n", 0))
+        if not (n >= 1 and n.is_integer()):
             raise DeviceUnsupportedError(_host_hint(dsl, "FR needs an integer n >= 1"))
-    raise DeviceUnsupportedError(_host_hint(dsl, "this firmware decides CRF and FR only"))
+        params["n"] = int(n)
+    if kind in SEEDED_ON_DEVICE and params.get("seed") is None:
+        raise DeviceUnsupportedError(
+            f'schedule "{dsl}" draws random numbers and the device needs a seed for it; '
+            'add @algorithm("fleshler-hoffman", seed=N) to the schedule, '
+            "or run it on the host with --decision host"
+        )
+    return {"type": kind, "params": params}
 
 
 def _send(port: Port, command: dict[str, Any]) -> None:

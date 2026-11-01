@@ -1,9 +1,11 @@
 """Choosing where the contingency is decided: on the host (default) or on the device.
 
 The fake device port behaves like ``firmware/teensy41`` in device mode: it
-accepts ``load`` for CRF and FR only, answers ``probe`` without real time,
-and after ``start`` presses every 300 ms on its own clock, decides each
-press itself and reports ``response`` / ``reinforcer_start`` /
+accepts ``load`` for every atomic schedule (refusing a random one without
+``params.seed`` with ``missing_seed``), decides with contingency-py's
+``build_schedule_from_spec`` as the firmware does with contingency-rs,
+answers ``probe`` without real time, and after ``start`` presses every
+300 ms on its own clock, decides each press itself and reports ``response`` / ``reinforcer_start`` /
 ``reinforcer_end`` / ``stopped`` with a ``seq`` that goes up by one.
 """
 
@@ -17,10 +19,14 @@ import pytest
 pytest.importorskip("experiment_io")
 pytest.importorskip("serial")
 
+from contingency import ResponseEvent  # noqa: E402
+from contingency.conformance.spec import build_schedule_from_spec  # noqa: E402
 from experiment_io.hw.backends.virtual import ManualClock  # noqa: E402
 
 from contingency_bench import hil_crf  # noqa: E402
 from contingency_bench.hil_device import (  # noqa: E402
+    SEEDED_ON_DEVICE,
+    SUPPORTED_ON_DEVICE,
     DeviceUnsupportedError,
     check_decision_clock,
     device_schedule,
@@ -32,6 +38,7 @@ from .test_hil_crf import _FakeChamberPort  # noqa: E402
 
 _IRT = 0.3
 _DEVICE_EPOCH = 500.0
+_SEED = '@algorithm("fleshler-hoffman", seed=7)\n'
 
 
 class _FakeDevicePort:
@@ -41,9 +48,7 @@ class _FakeDevicePort:
         self._out: list[tuple[float, bytes]] = []
         self._buffer = b""
         self._seq = 0
-        self._n = 0
-        self._count = 0
-        self._probe_count = 0
+        self._schedule: object = None
         self._loaded = False
         self._running = False
         self._duration = 0.05
@@ -76,12 +81,11 @@ class _FakeDevicePort:
                 if 0 < self._stop_reinforcers <= self.n_reinforcers:
                     self._stop(t)
                 continue
-            self._count += 1
             self.n_responses += 1
-            reinforced = self._count >= self._n
+            outcome = self._schedule.step(t, ResponseEvent(time=t))  # type: ignore[attr-defined]
+            reinforced = outcome.reinforced
             self._say(t, {"kind": "response", "op": 0, "ts": self._ts(t), "reinforced": reinforced})
             if reinforced:
-                self._count = 0
                 self.n_reinforcers += 1
                 self._say(t, {"kind": "reinforcer_start", "op": 0, "ts": self._ts(t)})
                 self._feeder_off = t + self._duration
@@ -123,34 +127,35 @@ class _FakeDevicePort:
         if kind == "load":
             sched = cmd["schedule"]
             assert isinstance(sched, dict)
-            if sched["type"] == "CRF":
-                self._n = 1
-            elif sched["type"] == "FR":
-                self._n = int(sched["params"]["n"])
-            else:
+            if sched["type"] not in SUPPORTED_ON_DEVICE:
                 self._say(now, {"kind": "error", "code": "unsupported_schedule", "msg": "no"})
                 return len(data)
+            if sched["type"] in SEEDED_ON_DEVICE and "seed" not in sched.get("params", {}):
+                self._say(now, {"kind": "error", "code": "missing_seed", "msg": "no"})
+                return len(data)
+            self._schedule = build_schedule_from_spec(sched)
             reinforcer = cmd.get("reinforcer") or {}
             self._duration = float(reinforcer.get("duration", 0.05))  # type: ignore[union-attr]
             stop_after = cmd.get("stop_after") or {}
             self._stop_reinforcers = int(stop_after.get("reinforcers", -1))  # type: ignore[union-attr]
             self._loaded = True
-            self._probe_count = 0
             self._say(
                 now,
-                {"kind": "loaded", "firmware": "fake-device", "supported": ["CRF", "FR"]},
+                {
+                    "kind": "loaded",
+                    "firmware": "fake-device",
+                    "supported": list(SUPPORTED_ON_DEVICE),
+                },
                 with_seq=False,
             )
         elif kind == "probe":
-            reinforced = False
-            if cmd.get("event") is not None:
-                self._probe_count += 1
-                if self._probe_count >= self._n:
-                    self._probe_count = 0
-                    reinforced = True
-            out: dict[str, object] = {"kind": "outcome", "reinforced": reinforced}
-            if reinforced:
-                out["reinforcer"] = {"time": cmd["now"], "magnitude": 1.0, "label": "SR+"}
+            ev = cmd.get("event")
+            event = None if ev is None else ResponseEvent(time=float(ev["time"]))  # type: ignore[index]
+            outcome = self._schedule.step(float(cmd["now"]), event)  # type: ignore[attr-defined]
+            out: dict[str, object] = {"kind": "outcome", "reinforced": outcome.reinforced}
+            if outcome.reinforced:
+                r = outcome.reinforcer
+                out["reinforcer"] = {"time": r.time, "magnitude": r.magnitude, "label": r.label}
             self._say(now, out, with_seq=False)
         elif kind == "start":
             self._seq = 0
@@ -197,7 +202,11 @@ def test_without_decision_the_host_decides_and_no_load_is_sent(tmp_path, monkeyp
 
 
 # (b) --decision device with a schedule the device cannot decide: exit 2 before anything.
-def test_device_decision_with_vi_stops_before_the_session(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize(
+    ("dsl", "said"),
+    [("VI 30", "seed"), ("Conc(VI 30, VI 60)", "atomic")],
+)
+def test_device_decision_refused_stops_before_the_session(tmp_path, monkeypatch, capsys, dsl, said):
     clock = ManualClock()
     port = _FakeDevicePort(clock)
     monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
@@ -205,12 +214,13 @@ def test_device_decision_with_vi_stops_before_the_session(tmp_path, monkeypatch,
     okl = tmp_path / "device.okl"
 
     code = hil_crf.main(
-        ["--port", "/dev/fake", "--dsl", "VI 30", "--decision", "device", "--okl", str(okl)]
+        ["--port", "/dev/fake", "--dsl", dsl, "--decision", "device", "--okl", str(okl)]
     )
 
     assert code == 2
     err = capsys.readouterr().err
-    assert "VI 30" in err
+    assert dsl in err
+    assert said in err
     assert "--decision host" in err
     assert not okl.exists()
     assert not any(c.get("cmd") == "start" for c in port.commands)
@@ -292,12 +302,59 @@ def test_device_run_counts_fr_and_checks_seq(tmp_path):
     assert run.seq_gaps == 0
 
 
-def test_device_schedule_maps_only_crf_and_fr():
-    assert device_schedule("CRF") == {"type": "CRF", "params": {}}
-    assert device_schedule("FR 5") == {"type": "FR", "params": {"n": 5}}
-    for dsl in ("VI 30", "FI 10", "EXT", "Conc(VI 30, VI 60)"):
-        with pytest.raises(DeviceUnsupportedError):
-            device_schedule(dsl)
+@pytest.mark.parametrize(
+    ("dsl", "expected"),
+    [
+        ("CRF", {"type": "CRF", "params": {}}),
+        ("EXT", {"type": "EXT", "params": {}}),
+        ("FR 5", {"type": "FR", "params": {"n": 5}}),
+        ("FI 10", {"type": "FI", "params": {"interval": 10.0}}),
+        ("FT 5", {"type": "FT", "params": {"interval": 5.0}}),
+        (_SEED + "VR 5", {"type": "VR", "params": {"mean": 5.0, "seed": 7}}),
+        (_SEED + "RR 5", {"type": "RR", "params": {"probability": 0.2, "seed": 7}}),
+        (_SEED + "VI 30s", {"type": "VI", "params": {"mean_interval": 30.0, "seed": 7}}),
+        (_SEED + "RI 5", {"type": "RI", "params": {"mean_interval": 5.0, "seed": 7}}),
+        (_SEED + "VT 10", {"type": "VT", "params": {"mean_interval": 10.0, "seed": 7}}),
+        (_SEED + "RT 3", {"type": "RT", "params": {"mean_interval": 3.0, "seed": 7}}),
+        (
+            'VI 30 @algorithm("fleshler-hoffman", n=12, seed=3)',
+            {"type": "VI", "params": {"mean_interval": 30.0, "seed": 3, "n_intervals": 12}},
+        ),
+    ],
+)
+def test_device_schedule_maps_every_atomic(dsl, expected):
+    assert device_schedule(dsl) == expected
+
+
+@pytest.mark.parametrize("dsl", ["VR 5", "RR 5", "VI 30", "RI 5", "VT 10", "RT 3"])
+def test_random_schedule_without_seed_is_refused_with_both_fixes(dsl):
+    with pytest.raises(DeviceUnsupportedError) as err:
+        device_schedule(dsl)
+    msg = str(err.value)
+    assert "seed" in msg
+    assert "@algorithm" in msg
+    assert "--decision host" in msg
+
+
+@pytest.mark.parametrize("dsl", ["Conc(VI 30, VI 60)", "FR 2.5", "not a schedule"])
+def test_device_schedule_refuses_the_rest(dsl):
+    with pytest.raises(DeviceUnsupportedError, match="--decision host"):
+        device_schedule(dsl)
+
+
+def test_device_runs_vi_30_with_a_seed(tmp_path):
+    clock = ManualClock()
+    port = _FakeDevicePort(clock)
+    okl = tmp_path / "vi.okl"
+
+    run = run_device(lambda: port, dsl=_SEED + "VI 30s", reinforcers=5, clock=clock, okl_path=okl)
+
+    assert run.finished
+    assert run.n_reinforcers == 5
+    assert run.n_responses > 5  # an interval schedule does not reinforce every press
+    assert run.seq_gaps == 0
+    load = next(c for c in port.commands if c.get("cmd") == "load")
+    assert load["schedule"] == {"type": "VI", "params": {"mean_interval": 30.0, "seed": 7}}
 
 
 def test_decision_and_clock_must_agree():
