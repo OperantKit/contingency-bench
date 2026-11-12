@@ -198,6 +198,8 @@ def run_crf(
 
     port = open_port()
     _send(port, {"cmd": "stop"})
+    # The firmware keeps the protocol a contingency-hil-serial run switched it to.
+    _send(port, {"cmd": "proto", "p": "json"})
     _wait(clock, _SETTLE_S)
     reset = getattr(port, "reset_input_buffer", None)
     if callable(reset):

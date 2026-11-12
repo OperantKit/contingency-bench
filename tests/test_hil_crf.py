@@ -41,6 +41,8 @@ class _FakeChamberPort:
         self.commands: list[dict[str, object]] = []
         self.opened = 1
         self.closed = 0
+        # Like the firmware, the protocol set by ``proto`` stays until changed.
+        self.proto_rs = False
 
     def _emit_due(self) -> None:
         now = self.clock()
@@ -48,7 +50,8 @@ class _FakeChamberPort:
             t = self._next_response
             delay = _DELAYS[self._seq % len(_DELAYS)]
             line = {"op": 0, "ts": t + self.device_offset, "kind": "response", "seq": self._seq}
-            self._pending.append((t + delay, (json.dumps(line) + "\n").encode()))
+            raw = b"R 0\n" if self.proto_rs else (json.dumps(line) + "\n").encode()
+            self._pending.append((t + delay, raw))
             self._seq += 1
             self._last_response = t
             self._next_response = t + _IRT
@@ -82,7 +85,9 @@ class _FakeChamberPort:
             self._next_response = now + _IRT
         elif kind == "stop":
             self._next_response = None
-        elif kind == "reinforcer":
+        elif kind == "proto":
+            self.proto_rs = cmd.get("p") == "rs"
+        elif kind == "reinforcer" and not self.proto_rs:
             self.lat_us.append(round((now - self._last_response) * 1e6))
             duration = float(cmd.get("duration", 0.5))  # type: ignore[arg-type]
             self._feeder_off = now + duration
@@ -148,6 +153,21 @@ def test_the_device_is_stopped_before_the_report_and_the_port_is_reopened():
     assert kinds[-2:] == ["stop", "report"]
     assert "sync" in kinds
     assert port.closed >= 2
+
+
+def test_a_device_left_in_the_rs_protocol_is_switched_back_before_the_session():
+    clock = ManualClock()
+    port = _FakeChamberPort(clock)
+    port.proto_rs = True  # left so by a contingency-hil-serial run
+
+    run = run_crf(
+        _opener(port), reinforcers=3, reinforcer_duration=0.05, clock=clock, max_duration=10
+    )
+
+    assert run.finished
+    kinds = [c["cmd"] for c in port.commands]
+    assert kinds.index("proto") < kinds.index("sync")
+    assert {"cmd": "proto", "p": "json"} in port.commands
 
 
 def test_a_ratio_schedule_from_the_dsl_counts_responses(tmp_path: Path):
