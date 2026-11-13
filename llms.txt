@@ -27,7 +27,7 @@ CLI: `contingency-bench --mock --steps 50`. Live runs use `APILLMClient`, which 
 
 ## Docs
 
-- [README](https://github.com/OperantKit/contingency-bench/blob/main/README.md): scope, 30-second example, why not to hand-roll the benchmark, references
+- [README](https://github.com/OperantKit/contingency-bench/blob/main/README.md): scope, example, why not to hand-roll the benchmark, references
 - [AGENTS.md](https://github.com/OperantKit/contingency-bench/blob/main/AGENTS.md): when to use this package and what not to do
 
 ## Related packages
