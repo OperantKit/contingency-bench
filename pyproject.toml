@@ -39,9 +39,9 @@ llm = [
 ]
 hil = [
   "pyserial>=3.5",
-  "experiment-core>=0.1.1,<0.2",
+  "experiment-core>=0.2,<0.3",
   "session-runner>=0.1.1,<0.2",
-  "session-recorder>=0.1.1,<0.2",
+  "session-recorder>=0.2,<0.3",
   "experiment-io>=0.1.1,<0.2",
   "contingency-py>=0.1.1,<0.2",
   "contingency-dsl-py>=0.1.1,<0.2",
