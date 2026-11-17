@@ -2,7 +2,7 @@
 
 :gb: [English README](README.md)
 
-contingency-bench は、大規模言語モデル（LLM）が並立変動間隔（VI）スケジュールの 2 つの選択肢をどう選ぶかを測り、その選択を一般化マッチング法則でまとめます。動物と同じ言葉、つまり強化への感度・偏好（バイアス）・参照用の学習モデルの 1 つのパラメータで LLM の選択行動を記述したい研究者に向けたものです。[OperantKit](https://github.com/OperantKit) の中では、LLM を被験体としたベンチマークを担います。また、ハードウェアを組み込んだ（HIL: hardware-in-the-loop）計時ベンチとして、Teensy 4.1 で動く偽のオペラント箱のファームウェア、それを OperantKit のセッションで回すホスト側の実行の道具、ロジックアナライザの記録の解析を持ちます。
+contingency-bench は、大規模言語モデル (LLM) が並立変動時隔 (VI) スケジュールの 2 つの選択肢をどう選ぶかを測り、その選択を一般化マッチング法則でまとめます。動物と同じ言葉、つまり強化への感度・偏好 (バイアス)・参照用の学習モデルの 1 つのパラメータで LLM の選択行動を記述したい研究者に向けたものです。[OperantKit](https://github.com/OperantKit) の中では、LLM を被験体としたベンチマークを担います。また、ハードウェアを組み込んだ (HIL: hardware-in-the-loop) 計時ベンチとして、Teensy 4.1 で動く偽のオペラント箱のファームウェア、それを OperantKit のセッションで回すホスト側の実行の道具、ロジックアナライザの記録の解析を持ちます。
 
 - **偏りの少ない指標で感度を出す。** 総反応だけでなく、強化されなかった反応にも当てはめます。
 - **どの条件も試行数が同じ。** 差が経験量の差にならないようにします。
@@ -24,7 +24,7 @@ pip install anthropic
 
 ## 例
 
-LLM の代わりに模擬被験体（`beta = 0.2` の方策圧縮の学習者）で手順全体を走らせます。API キーは要りません。
+LLM の代わりに模擬被験体 (`beta = 0.2` の方策圧縮の学習者) で手順全体を走らせます。API キーは要りません。
 
 ```python
 import numpy as np
@@ -38,13 +38,13 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 # 0.38 0.82 -0.18 0.17
 ```
 
-4 つの値は、強化されなかった反応に当てはめた一般化マッチング法則の感度、総反応に当てはめた感度、偏好（log b）、1 つ目の感度から推定し直した `beta` です。推定された 0.17 は、模擬被験体に与えた 0.2 に近い値です。
+4 つの値は、強化されなかった反応に当てはめた一般化マッチング法則の感度、総反応に当てはめた感度、偏好 (log b)、1 つ目の感度から推定し直した `beta` です。推定された 0.17 は、模擬被験体に与えた 0.2 に近い値です。
 
 ## 仕組み
 
 1. **セッション。** ボタンは 2 つです。試行ごとに、まだ強化が設定されていないボタンが、それぞれの確率で設定されます。設定されたボタンへの反応は強化され、設定は解除されます。設定の確率が (0.1, 0.9)、(0.3, 0.7)、(0.5, 0.5)、(0.7, 0.3)、(0.9, 0.1) の 5 条件を走らせます。
-2. **被験体。** LLM は試行ごとに、試行番号とボタンごとのそれまでの反応数・強化数を書いた短い日本語のプロンプトを受け取り、`1` か `2` で答えます。模擬被験体は方策圧縮の学習者です（Lai & Gershman, 2021）。
-3. **当てはめ。** 一般化マッチング法則（Baum, 1974）を 5 条件にわたって 2 通りに当てはめます。強化されなかった反応の比と、総反応の比です。強化が頻繁なとき、総反応は感度を上に偏らせます（Davison, 2021）。
+2. **被験体。** LLM は試行ごとに、試行番号とボタンごとのそれまでの反応数・強化数を書いた短い日本語のプロンプトを受け取り、`1` か `2` で答えます。模擬被験体は方策圧縮の学習者です (Lai & Gershman, 2021)。
+3. **当てはめ。** 一般化マッチング法則 (Baum, 1974) を 5 条件にわたって 2 通りに当てはめます。強化されなかった反応の比と、総反応の比です。強化が頻繁なとき、総反応は感度を上に偏らせます (Davison, 2021)。
 4. **参照モデル。** `estimate_beta_from_sensitivity` は、当てはめた感度に最も近い感度を出す方策圧縮の学習者の `beta` を探します。これで結果を 1 つのパラメータで言えます。
 
 | 名前 | 中身 |
@@ -56,20 +56,20 @@ print(round(r.sensitivity_unreinforced, 2), round(r.sensitivity_total, 2), round
 | `estimate_matching_parameters`、`estimate_beta_from_sensitivity` | マッチング法則の当てはめと `beta` の探索 |
 | `equate_training_steps` | どの条件にも同じ試行数を割り当てる |
 
-コマンドラインでも同じ手順を走らせられます: `contingency-bench --mock --steps 50`。`--mock` を付けないと API を呼びます。`--model`（複数回指定可）で Claude のモデル ID を選びます。`--mock` のときの既定のモデル名は、`beta` の違う模擬被験体に付けた名前にすぎません。
+コマンドラインでも同じ手順を走らせられます: `contingency-bench --mock --steps 50`。`--mock` を付けないと API を呼びます。`--model` (複数回指定可) で Claude のモデル ID を選びます。`--mock` のときの既定のモデル名は、`beta` の違う模擬被験体に付けた名前にすぎません。
 
 ## 制限
 
-- **セッションは時間でなく試行で進みます。** ここでの「VI」は試行ごとの一定の設定確率のことで、秒単位の強化間間隔も、切替遅延（COD）も、Fleshler–Hoffman の値もありません。実験箱のセッションのモデルではありません。
+- **セッションは時間でなく試行で進みます。** ここでの「VI」は試行ごとの一定の設定確率のことで、秒単位の強化間間隔も、切り替え遅延 (COD) も、Fleshler–Hoffman の値もありません。実験箱のセッションのモデルではありません。
 - **ボタンは 2 つ、条件は 5 つだけ**です。自分の `conditions` を渡さない限りコードで固定です。
 - **組み込みは Anthropic のモデルだけ**です。他のモデルには `BaseLLMClient` のサブクラスが要ります。
-- **失敗した呼び出しは無作為の選択になります。** API の呼び出しが失敗したとき（警告がログに出ます）や、答えに `1` と `2` の両方が含まれるか、どちらも含まれないとき（何もログに出ません）、その試行は無作為に答えられます。そうなった試行の数は報告されません。
+- **失敗した呼び出しは無作為の選択になります。** API の呼び出しが失敗したとき (警告がログに出ます) や、答えに `1` と `2` の両方が含まれるか、どちらも含まれないとき (何もログに出ません)、その試行は無作為に答えられます。そうなった試行の数は報告されません。
 - **実機の実行の道具は、操作体 1 つ・給餌器 1 つです。** 偽のオペラント箱がそうだからです。並立スケジュールはつないでいません。
 - **`--realtime` は macOS だけで、効く保証はありません。** 時間制約スレッドは管理者権限なしで取れますが、計算時間を超えて動き続けたスレッドはカーネルが標準のポリシーへ戻します。macOS 以外では何もせず、実行はそのまま続きます。
 
-## 実機（Teensy 4.1）
+## 実機 (Teensy 4.1)
 
-`firmware/teensy41/` は [Teensy 4.1](https://www.pjrc.com/store/teensy41.html) で動く偽のオペラント箱です。模擬の被験体が 300 ms ごとに反応し、基板は experiment-io の serial backend（`SerialOperandum` / `SerialReinforcer`）と同じ 1 行 1 JSON の取り決めで話すので、ホストのセッションを本物の USB シリアルで回せます。2 本の端子をロジックアナライザで記録すると、反応から強化子までの遅れを確かめられます。
+`firmware/teensy41/` は [Teensy 4.1](https://www.pjrc.com/store/teensy41.html) で動く偽のオペラント箱です。模擬の被験体が 300 ms ごとに反応し、基板は experiment-io の serial backend (`SerialOperandum` / `SerialReinforcer`) と同じ 1 行 1 JSON の取り決めで話すので、ホストのセッションを本物の USB シリアルで回せます。2 本の端子をロジックアナライザで記録すると、反応から強化子までの遅れを確かめられます。
 
 ### 配線
 
@@ -102,19 +102,19 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 | 向き | 行 | 意味 |
 |---|---|---|
 | 機器 → ホスト | `{"op":0,"ts":<s>,"kind":"response","seq":<n>}` | 操作体 0 への反応。`ts` は最後の `sync` で渡されたホストの時計での秒、`seq` は 0 から数える |
-| ホスト → 機器 | `{"cmd": "reinforcer", "op": 0, "duration": <s>}` | 給餌器（2 番）を `duration` 秒 ON にする（無ければ 0.5） |
+| ホスト → 機器 | `{"cmd": "reinforcer", "op": 0, "duration": <s>}` | 給餌器 (2 番) を `duration` 秒 ON にする (無ければ 0.5) |
 | ホスト → 機器 | `{"cmd":"sync","t":<s>}` | 反応を始める。`t` はいまのホストの時計で、以後の `ts` は `t` に Teensy の経過時間を足した値。遅れの記録を消す |
 | ホスト → 機器 | `{"cmd":"stop"}` | 反応を止める |
-| ホスト → 機器 | `{"cmd":"report"}` | `{"kind":"report","n":<n>,"lat_us":[...]}` を返す。強化子の命令ごとに、直前の反応から命令が届くまでのマイクロ秒（最大 2000 件） |
-| ホスト → 機器 | `{"cmd":"proto","p":"rs","duration":<s>}` | セッションの行を [contingency-rs](https://github.com/OperantKit/contingency-rs) のシリアル接続の形式（下記）に切り替える。`D` の行で給餌器を `duration` 秒 ON にする（指定するまでは 0.05）。`{"cmd":"proto","p":"json"}` で戻す |
+| ホスト → 機器 | `{"cmd":"report"}` | `{"kind":"report","n":<n>,"lat_us":[...]}` を返す。強化子の命令ごとに、直前の反応から命令が届くまでのマイクロ秒 (最大 2000 件) |
+| ホスト → 機器 | `{"cmd":"proto","p":"rs","duration":<s>}` | セッションの行を [contingency-rs](https://github.com/OperantKit/contingency-rs) のシリアル接続の形式 (下記) に切り替える。`D` の行で給餌器を `duration` 秒 ON にする (指定するまでは 0.05)。`{"cmd":"proto","p":"json"}` で戻す |
 
-`proto rs` の後は、反応は `R 0` の行になり、機器は `D <channel> <magnitude>` を強化子の命令として受け取ります（`sync`・`stop`・`report`・`proto` は JSON のまま）。report は両方の形式で同じに測るので、同じ基板で Python のホストと Rust のホストを比べられます。`R` の行は機器の時刻を持ちません。
+`proto rs` の後は、反応は `R 0` の行になり、機器は `D <channel> <magnitude>` を強化子の命令として受け取ります (`sync`・`stop`・`report`・`proto` は JSON のまま)。report は両方の形式で同じに測るので、同じ基板で Python のホストと Rust のホストを比べられます。`R` の行は機器の時刻を持ちません。
 
 模擬の被験体は、給餌器が ON の間は反応しません。次の反応は前の反応の 300 ms 後です。
 
 ### ホスト側の実行
 
-`contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`hil` の追加依存（pyserial と OperantKit のパッケージ。`drive` が `on_response` を受け付ける版）が要ります。
+`contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`hil` の追加依存 (pyserial と OperantKit のパッケージ。`drive` が `on_response` を受け付ける版) が要ります。
 
 ```bash
 pip install "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
@@ -124,20 +124,20 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 
 | オプション | 意味 |
 |---|---|
-| `--dsl` | contingency-dsl の式（既定 `CRF`） |
-| `--reinforcers` | この回数の強化子でセッションを終える（既定 200） |
-| `--duration` | 強化子の長さ（秒）。強化子の命令ごとに送る（既定 0.05） |
+| `--dsl` | contingency-dsl の式 (既定 `CRF`) |
+| `--reinforcers` | この回数の強化子でセッションを終える (既定 200) |
+| `--duration` | 強化子の長さ (秒)。強化子の命令ごとに送る (既定 0.05) |
 | `--okl` / `--summary` | OKL のログ／要約の JSON を書く |
-| `--max-duration` | この秒数で打ち切る（既定 600） |
-| `--realtime` | ホストのループを macOS の時間制約スレッドで回す（experiment-io の `time_constraint`、周期 = 1 ms の poll 間隔）。適用できたかは要約の `realtime` に残る |
+| `--max-duration` | この秒数で打ち切る (既定 600) |
+| `--realtime` | ホストのループを macOS の時間制約スレッドで回す (experiment-io の `time_constraint`、周期 = 1 ms の poll 間隔)。適用できたかは要約の `realtime` に残る |
 
-セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms`（反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値）と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
+セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms` (反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値) と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
 
-同じ CRF のセッションは、contingency-rs の `contingency-hil-serial` バイナリで Rust からも回せます（`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`）。`proto rs` で基板を切り替え、contingency-rs の CRF をシリアル接続で回し、同じキーの要約を書きます。こちらの `host_minus_device_ms` は空です。
+同じ CRF のセッションは、contingency-rs の `contingency-hil-serial` バイナリで Rust からも回せます (`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`)。`proto rs` で基板を切り替え、contingency-rs の CRF をシリアル接続で回し、同じキーの要約を書きます。こちらの `host_minus_device_ms` は空です。
 
 ### 遅れの解析
 
-`contingency-bench-hil-latency` は `sigrok-cli -O vcd` が書いたロジックアナライザの記録を読み、反応の目印（CH2）ごとに次の給餌器の立ち上がり（CH1）までの時間を数え、件数・中央値・p95・p99・最小・最大をマイクロ秒で出します。時間の単位は VCD の `$timescale` から読むので、1 MHz（`1 us`）と 4 MHz（`10 ns`）の記録が同じ単位になります。p95 と p99 は補間せず、記録された値のどれかを返します。
+`contingency-bench-hil-latency` は `sigrok-cli -O vcd` が書いたロジックアナライザの記録を読み、反応の目印 (CH2) ごとに次の給餌器の立ち上がり (CH1) までの時間を数え、件数・中央値・p95・p99・最小・最大をマイクロ秒で出します。時間の単位は VCD の `$timescale` から読むので、1 MHz (`1 us`) と 4 MHz (`10 ns`) の記録が同じ単位になります。p95 と p99 は補間せず、記録された値のどれかを返します。
 
 ```bash
 contingency-bench-hil-latency run.vcd --device-report report.json --expected-width 0.05
@@ -145,14 +145,14 @@ contingency-bench-hil-latency run.vcd --device-report report.json --expected-wid
 
 | オプション | 意味 |
 |---|---|
-| `--device-report` | 機器の `report`（`{"kind":"report","lat_us":[...]}`。そのままでも `"device"` の下でもよい）を含む JSON。反応ごとの差「アナライザ − 機器」を足す |
-| `--expected-width` | 強化子の命令で送った `duration`（秒）。これと `--width-tolerance`（既定 0.0001 秒）より大きく違う給餌器のパルスを数え、警告に出す |
-| `--response-signal` / `--feeder-signal` | sigrok の信号名（既定 `D1` / `D0`。アナライザの CH2 / CH1） |
+| `--device-report` | 機器の `report` (`{"kind":"report","lat_us":[...]}`。そのままでも `"device"` の下でもよい) を含む JSON。反応ごとの差「アナライザ − 機器」を足す |
+| `--expected-width` | 強化子の命令で送った `duration` (秒)。これと `--width-tolerance` (既定 0.0001 秒) より大きく違う給餌器のパルスを数え、警告に出す |
+| `--response-signal` / `--feeder-signal` | sigrok の信号名 (既定 `D1` / `D0`。アナライザの CH2 / CH1) |
 | `--json` | 要約と反応ごとの値を JSON で出す |
 
 警告があると終了コードは 1 です。警告は、次の反応までに給餌器の立ち上がりが無い反応の目印、命令と違う給餌器の幅、反応の目印の数と長さが違う機器の report の 3 つです。給餌器の幅の誤りは、配線よりもファームウェアのパルスの終わりの計時が原因であることが多いので、まずファームウェアの出力を確かめてください。同じ解析は `contingency_bench.hil_latency` の `parse_vcd` と `analyze` でも使えます。
 
-アナライザは別のパソコンにつないでかまいません（sigrok-cli は Windows でも動きます）。CH1 と CH2 の記録はセッションの数秒前に始め、セッションより少し長く取ります（0.05 秒の強化子 200 回の CRF は約 60 秒）。
+アナライザは別のパソコンにつないでかまいません (sigrok-cli は Windows でも動きます)。CH1 と CH2 の記録はセッションの数秒前に始め、セッションより少し長く取ります (0.05 秒の強化子 200 回の CRF は約 60 秒)。
 
 ```bash
 sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O vcd -o run.vcd
@@ -162,8 +162,8 @@ sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O v
 
 ### 既知の制約
 
-- **macOS は、新しくつながったアクセサリごとに接続の許可を求めます。** Teensy をつなぎ直すたび（書き込み中の再接続を含む）に「アクセサリの接続を許可しますか」が出ることがあり、許可されるまで書き込みは `Operation not permitted` や `Unable to open device` で失敗します。出ないようにするには、システム設定 → プライバシーとセキュリティ → アクセサリ → 「アクセサリの接続を許可」を「ロック解除時に自動的に許可」にします（[Apple のサポート記事](https://support.apple.com/en-us/102282)）。
-- **時間切れになった書き込みは、`teensy_loader_cli` が基板をつかんだまま残ることがあります。** 次の書き込みの前に、残ったプロセス（`pgrep -fl teensy_loader`）を止めます。
+- **macOS は、新しくつながったアクセサリごとに接続の許可を求めます。** Teensy をつなぎ直すたび (書き込み中の再接続を含む) に「アクセサリの接続を許可しますか」が出ることがあり、許可されるまで書き込みは `Operation not permitted` や `Unable to open device` で失敗します。出ないようにするには、システム設定 → プライバシーとセキュリティ → アクセサリ → 「アクセサリの接続を許可」を「ロック解除時に自動的に許可」にします ([Apple のサポート記事](https://support.apple.com/en-us/102282))。
+- **時間切れになった書き込みは、`teensy_loader_cli` が基板をつかんだまま残ることがあります。** 次の書き込みの前に、残ったプロセス (`pgrep -fl teensy_loader`) を止めます。
 - **Teensy の時計とホストの時計は合っていません。** `sync` で機器の原点をホストの時刻にそろえますが、その後は 2 つの時計を合わせ続けないので、ホストが命令を書いてから機器が受け取るまでの遅れは片側だけでは読めません。アナライザと機器の report が測るのは、機器の側で起きることだけです。
 
 ## AI のコーディングエージェント向け
