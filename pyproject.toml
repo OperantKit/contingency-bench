@@ -46,6 +46,12 @@ hil = [
   "contingency-py>=0.1.1,<0.2",
   "contingency-dsl-py>=0.1.1,<0.2",
 ]
+respondent = [
+  # Law suite of the Tier B respondent procedures (tests/test_respondent_laws.py).
+  # Neither package is on PyPI yet; install them from their checkouts first.
+  "contingency-respondent-py",
+  "session-analyzer",
+]
 test = [
   "pytest>=8",
   "pytest-cov",

@@ -166,6 +166,60 @@ sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O v
 - **時間切れになった書き込みは、`teensy_loader_cli` が基板をつかんだまま残ることがあります。** 次の書き込みの前に、残ったプロセス (`pgrep -fl teensy_loader`) を止めます。
 - **Teensy の時計とホストの時計は合っていません。** `sync` で機器の原点をホストの時刻にそろえますが、その後は 2 つの時計を合わせ続けないので、ホストが命令を書いてから機器が受け取るまでの遅れは片側だけでは読めません。アナライザと機器の report が測るのは、機器の側で起きることだけです。
 
+## レスポンデントの法則スイート
+
+`tests/test_respondent_laws.py` は、パヴロフ型 (レスポンデント) の現象のうち、どれを Rescorla–Wagner モデル (Rescorla & Wagner, 1972) が予測するかを確かめます。contingency-respondent-dsl の Tier B の conformance の例 (`expected_ast`) を全部、contingency-respondent-py の展開器と session-analyzer の複合 CS の Rescorla–Wagner モデルに通し (全刺激 α = 0.3、β = 1、各 US の λ = 1、AST に回数が無い段階は 20 試行)、現象を連合強度 (V) の不等式だけで判定します。
+
+スイートには extra の `respondent` (contingency-respondent-py と session-analyzer) が要ります。どちらもまだ PyPI に無いので、extra の前にそれぞれの checkout から入れます。入っていなければスイートを飛ばします。例の置き場は `$RESPONDENT_CONFORMANCE_ROOT`、無ければ `contingency-respondent-dsl/conformance/tier-b` を持つ祖先のディレクトリで、見つからなければスイートを飛ばします。
+
+```bash
+.venv/bin/python -m pip install -e <contingency-respondent-py> -e <session-analyzer>
+.venv/bin/python -m pip install -e ".[respondent,test]"
+.venv/bin/pytest tests/test_respondent_laws.py
+```
+
+- **通過** — R–W で現象の向きが出る。
+- **通過・機構は違う** — 素直な拡張 (文脈を要素にする・US ごとに系を分ける) で向きは出るが、その手続きで知られる機構は出ない。
+- **期待どおりの不一致** — R–W では現象が出ない。テストは現象を書き、`xfail(strict=True)` にしてある。
+- **未対応** — CS 内の時間が要る。展開器が断る。
+
+| # | 手続き | R–W | V での判定 | 結果 (スイートの値) |
+|---|---|---|---|---|
+| 1 | HigherOrderConditioning | しない | X→A の後に V_light > 0 | 期待どおりの不一致 (V_light = 0) |
+| 2 | SensoryPreconditioning | しない | test で V_light > 0 | 期待どおりの不一致 (V_light = 0) |
+| 3 | Counterconditioning | 部分 | V^shock_tone が下がり、V^food_tone > 0 | 通過・機構は違う (0.999 → 0.001、V^food 0.999)。US の系どうしの相互制止は無い |
+| 4 | Blocking | する | V_x < 対照 | 通過 (0.000 対 0.500) |
+| 5 | Overshadowing | する | V_dim < 単独訓練、V_loud > V_dim (α 0.5 / 0.2) | 通過 (0.286 対 1.000、V_loud 0.714) |
+| 6 | Overexpectation | する | AX+ で V_a が下がり、対照は不変 | 通過 (0.999 → 0.500、対照 0.999) |
+| 7 | SuperConditioning | する | V_x > 相手が中性刺激の対照 | 通過 (0.969 対 0.500、V_i −0.938) |
+| 8 | RetrospectiveRevaluation | しない | 後向きブロッキング (V_x < 対照) と回復 (V_x > 対照) | 期待どおりの不一致 (2 例とも V_x = 対照 = 0.500) |
+| 9 | ConditionedInhibition | する | V_i < 0 かつ V_a + V_i → 0 | 通過 (V_a 0.997、V_i −0.996)。記録された A+/AX− のデータ (下) にも弁別が出ている |
+| 10 | OccasionSetting | 部分 | FP: V_feature > 0、V_target ≈ 0 | 通過・機構は違う (0.998 / 0.001)。場面設定そのものは要素の和では出ない |
+| 11 | InhibitionOfDelay | しない | — | 未対応 |
+| 12 | SummationRetardationTest | する | ΣV(E+I) < V_E、5 試行後の V_I < 新奇 CS | 通過 (0.001 対 0.997、0.664 対 0.832) |
+| 13 | LatentInhibition | しない | 訓練後の V_tone < 対照 | 期待どおりの不一致 (1.000 = 1.000) |
+| 14 | USPreexposure | 部分 | V_tone < 対照 | 通過・機構は違う (0.000 対 0.500)。文脈によるブロッキングだけ |
+| 15 | Renewal | 部分 | ΣV (A での test) > ΣV (B での消去の終わり) | 通過・機構は違う (0.750 対 0.000)。文脈 B が制止子になって終わる |
+| 16 | Reinstatement | 部分 | ΣV(test) > ΣV (消去の終わり)、別文脈では不変 | 通過・機構は違う (0.760 対 0.000)。文脈の興奮だけ |
+| 17 | SpontaneousRecovery | しない | V_tone(test) > 消去の終わり | 期待どおりの不一致 (時間の変数が無い) |
+| 18 | LatentExtinction | 部分 | ΣV(test) < 対照 | 通過・機構は違う (0.500 対 1.000)。減るのは文脈の分だけ |
+| 19 | PavlovianPREE | しない | 消去後に V(部分) > V(連続) | 期待どおりの不一致 (R–W は逆を出す) |
+| 20 | ContextualExtinction | 部分 | ΣV (獲得文脈での test) > 消去の終わり | 通過・機構は違う (0.750 対 0.000) |
+| 21 | ReconsolidationInterference | しない | 普通の消去の後は回復し、想起→消去の後は回復しない | 期待どおりの不一致 (どちらも回復しない) |
+| 22 | ConditionedTasteAversion | 部分 | 1 試行後に V_taste > 0 | 通過・機構は違う (0.300)。CS–US の遅延は捨てている |
+| 23 | StimulusGeneralization | しない | V(750 Hz) > V(500 Hz) > 0 | 期待どおりの不一致 (訓練していない刺激は 0 のまま) |
+| 24 | ContextualFearConditioning | 部分 | 1 試行後に V_ctx > 0 | 通過・機構は違う (0.300)。置いてから電撃までの間隔は捨てている |
+| 25 | PeakProcedure | しない | — | 未対応 |
+| 26 | MediatedConditioning | しない | V^lithium_flavor > 0 | 期待どおりの不一致 (V = 0) |
+
+合計: 通過 6、通過・機構は違う 9、期待どおりの不一致 9、未対応 2 (例のファイルは 26。`RetrospectiveRevaluation` と
+`SummationRetardationTest` は例が 2 つずつ)。
+
+9 行目の記録データ: ラットの A+ / AX− 手続きを MED-PC で記録した公開データ (セッション番号の取れる 920 セッション) では、
+CS 8 秒あたりの餌皿への進入が、AX− では A+ の 0.73 倍 (セッション 1–5) から 0.44 倍 (6–15)、0.20 倍 (16 以降) に下がり、
+A+ は 10 前後のままでした。R–W が予測する弁別 (AX− の ΣV が V_A より小さい) と向きが合います。
+このデータには X の加算検査・遅延検査はありません。
+
 ## AI のコーディングエージェント向け
 
 AI のコーディングエージェント向けの案内は [AGENTS.md](AGENTS.md) にあります。
@@ -185,6 +239,7 @@ python -m venv .venv
 - Baum, W. M. (1974). On two types of deviation from the matching law: Bias and undermatching. *Journal of the Experimental Analysis of Behavior, 22*(1), 231–242. https://doi.org/10.1901/jeab.1974.22-231
 - Davison, M. (2021). Concurrent schedules: How responses per reinforcer affects estimates of sensitivity to reinforcement. *Journal of the Experimental Analysis of Behavior, 116*(1), 114–123. https://doi.org/10.1002/jeab.694
 - Lai, L., & Gershman, S. J. (2021). Policy compression: An information bottleneck in action selection. *Psychology of Learning and Motivation, 74*, 195–232. https://doi.org/10.1016/bs.plm.2021.02.004
+- Rescorla, R. A., & Wagner, A. R. (1972). A theory of Pavlovian conditioning: Variations in the effectiveness of reinforcement and nonreinforcement. In A. H. Black & W. F. Prokasy (Eds.), *Classical conditioning II: Current research and theory* (pp. 64–99). Appleton-Century-Crofts.
 
 ## ライセンス
 
