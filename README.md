@@ -105,6 +105,33 @@ cargo build --release --target thumbv7em-none-eabihf      # the library pio link
 
 On the computer, `cargo test` builds contingency-rs with `std` instead of the device's `c-runtime` (allocator and panic handler from the C library). The two builds differ in the float functions, the hash and the random source of unseeded schedules, so the tests give every random schedule they load a seed. The device build needs the target in the toolchain cargo runs (`rustup target add thumbv7em-none-eabihf`).
 
+### Host build (without the board)
+
+`firmware/teensy41/host/` builds the same `src/main.cpp`, with bench-decide, into an executable for the computer. It needs cargo and a C++17 compiler (`CXX`, default `c++`). `build.sh` prints the path of the executable; standard input takes the lines the board receives, and standard output gives the lines it sends:
+
+```bash
+cd firmware/teensy41
+fw="$(host/build.sh)"
+"$fw" <<'EOF'
+{"cmd":"load","schedule":{"type":"FR","params":{"n":3}},"reinforcer":{"op":0,"duration":0.05}}
+{"cmd":"probe","now":0.1,"event":{"operandum":"main"}}
+{"cmd":"probe","now":0.2,"event":{"operandum":"main"}}
+{"cmd":"probe","now":0.3,"event":{"operandum":"main"}}
+EOF
+```
+
+The answer is one `loaded` line and three `outcome` lines; only the third has `"reinforced":true`.
+
+`micros()` is the computer's monotonic clock, and the program ends when standard input ends. Three options change this:
+
+| Option | Meaning |
+|---|---|
+| `--virtual-clock` | `micros()` advances by a fixed step after each `loop()`. All of standard input is read before the clock first advances, so the same input gives the same output; a line cannot arrive in the middle of a session. The step is 100 µs, or `--step-us N` (1 to 1000) |
+| `--loops-after-eof N` | With `--virtual-clock`: the number of `loop()` calls after the end of standard input (default 0). 40000 calls of 100 µs are 4 s of a session |
+| `--pins` | Write each pin change to standard error as `{"pin":<n>,"value":<0 or 1>,"us":<micros()>}` |
+
+The host build runs the firmware's protocol, state and decisions. It does not show the board's latency, its USB serial or its electrical output, and it differs from the device build: contingency-rs is built with `std` (which also keeps the keys of a JSON object in their order), Rust is built with the dev profile, where an integer overflow stops the program, and `long` and `size_t` can have another width.
+
 ### Serial protocol
 
 One JSON object per line, in both directions, over USB serial.

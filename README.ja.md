@@ -105,6 +105,33 @@ cargo build --release --target thumbv7em-none-eabihf      # pio がリンクす�
 
 パソコンの上の `cargo test` は、contingency-rs を機器用の `c-runtime`（C ライブラリのメモリ確保と panic の処理）でなく `std` で組みます。2 つのビルドは浮動小数の関数・ハッシュ・seed の無い乱数スケジュールの乱数源が違うので、試験で読み込む乱数のスケジュールには必ず seed を付けます。機器用のビルドには、cargo が使う toolchain にこの target が入っている必要があります（`rustup target add thumbv7em-none-eabihf`）。
 
+### パソコン向けのビルド（ボード無し）
+
+`firmware/teensy41/host/` は、同じ `src/main.cpp` を bench-decide と一緒に、パソコンで動く実行ファイルに組みます。cargo と C++17 のコンパイラ（`CXX`、既定は `c++`）が要ります。`build.sh` は実行ファイルのパスを出力します。標準入力がボードの受け取る行、標準出力がボードの送る行です。
+
+```bash
+cd firmware/teensy41
+fw="$(host/build.sh)"
+"$fw" <<'EOF'
+{"cmd":"load","schedule":{"type":"FR","params":{"n":3}},"reinforcer":{"op":0,"duration":0.05}}
+{"cmd":"probe","now":0.1,"event":{"operandum":"main"}}
+{"cmd":"probe","now":0.2,"event":{"operandum":"main"}}
+{"cmd":"probe","now":0.3,"event":{"operandum":"main"}}
+EOF
+```
+
+`loaded` の行が 1 つと `outcome` の行が 3 つ返り、3 つ目だけが `"reinforced":true` です。
+
+`micros()` はパソコンの単調な時計で、標準入力が終わるとプログラムも終わります。次の 3 つのオプションで変えられます。
+
+| オプション | 意味 |
+|---|---|
+| `--virtual-clock` | `micros()` が `loop()` 1 回ごとに決まった刻みだけ進みます。時計が進み始める前に標準入力を最後まで読むので、同じ入力からは同じ出力が出ます。セッションの途中で行を届けることはできません。刻みは 100 µs で、`--step-us N`（1〜1000）で変えられます |
+| `--loops-after-eof N` | `--virtual-clock` のとき、標準入力が終わった後に `loop()` を呼ぶ回数（既定 0）。100 µs を 40000 回でセッション 4 秒分です |
+| `--pins` | 端子の変化を 1 つずつ標準エラーに `{"pin":<n>,"value":<0 か 1>,"us":<micros()>}` の形で書きます |
+
+パソコン向けのビルドで動かせるのは、ファームウェアの取り決め・状態・判定です。ボードの遅れ、USB シリアル、電気的な出力は分かりません。機器用のビルドとは次の点も違います。contingency-rs を `std` で組みます（JSON のキーの並びもそのまま残ります）。Rust は dev プロファイルで組むので、整数があふれるとプログラムが止まります。`long` と `size_t` の幅が違うことがあります。
+
 ### シリアルの取り決め
 
 USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります。
