@@ -340,6 +340,97 @@ def test_device_run_counts_fr_and_checks_seq(tmp_path):
     assert run.seq_gaps == 0
 
 
+class _ErringPort(_FakeDevicePort):
+    """The fake device, sending two ``error`` lines after the first press."""
+
+    def __init__(self, clock: ManualClock) -> None:
+        super().__init__(clock)
+        self._errors = [("bad_request", "time went backwards"), ("bad_state", "second")]
+
+    def _say(self, t: float, obj: dict[str, object], with_seq: bool = True) -> None:
+        super()._say(t, obj, with_seq)
+        if obj["kind"] == "response":
+            while self._errors:
+                code, msg = self._errors.pop(0)
+                super()._say(t, {"kind": "error", "code": code, "msg": msg})
+
+
+def test_device_errors_reach_the_summary_and_standard_error(tmp_path, monkeypatch, capsys):
+    clock = ManualClock()
+    port = _ErringPort(clock)
+    monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
+    monkeypatch.setattr(hil_crf, "_default_clock", lambda: clock)
+    summary = tmp_path / "summary.json"
+
+    code = hil_crf.main(
+        [
+            "--port",
+            "/dev/fake",
+            "--decision",
+            "device",
+            "--reinforcers",
+            "2",
+            "--summary",
+            str(summary),
+        ]
+    )
+
+    assert code == 0  # a warning, as for seq gaps
+    data = json.loads(summary.read_text())
+    assert data["n_errors"] == 2
+    assert data["first_error"] == {"code": "bad_request", "msg": "time went backwards"}
+    assert data["seq_gaps"] == 0
+    err = capsys.readouterr().err
+    assert "warning: the device sent 2 errors" in err
+    assert "bad_request" in err
+    assert "time went backwards" in err
+
+
+def test_a_device_run_without_errors_warns_about_none(tmp_path, monkeypatch, capsys):
+    clock = ManualClock()
+    port = _FakeDevicePort(clock)
+    monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
+    monkeypatch.setattr(hil_crf, "_default_clock", lambda: clock)
+    summary = tmp_path / "summary.json"
+
+    code = hil_crf.main(
+        ["--port", "/dev/fake", "--decision", "device", "--reinforcers", "2"]
+        + ["--summary", str(summary)]
+    )
+
+    assert code == 0
+    data = json.loads(summary.read_text())
+    assert data["n_errors"] == 0
+    assert data["first_error"] is None
+    assert "error" not in capsys.readouterr().err
+
+
+def test_a_refused_start_exits_2_with_the_code_and_message(tmp_path, monkeypatch, capsys):
+    clock = ManualClock()
+    port = _FakeDevicePort(clock)
+    write = port.write
+
+    def refuse(data: bytes) -> int:
+        if json.loads(data.decode()).get("cmd") != "start":
+            return write(data)
+        error = {"kind": "error", "code": "bad_state", "msg": "start needs a loaded schedule"}
+        port._say(clock(), error)
+        return len(data)
+
+    port.write = refuse  # type: ignore[method-assign]
+    monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
+    monkeypatch.setattr(hil_crf, "_default_clock", lambda: clock)
+    okl = tmp_path / "device.okl"
+
+    code = hil_crf.main(["--port", "/dev/fake", "--decision", "device", "--okl", str(okl)])
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "bad_state" in err
+    assert "start needs a loaded schedule" in err
+    assert not okl.exists()
+
+
 @pytest.mark.parametrize(
     ("dsl", "expected"),
     [

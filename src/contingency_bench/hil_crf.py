@@ -397,6 +397,12 @@ def _main_device(args: argparse.Namespace) -> int:
     )
     if run.seq_gaps:
         print(f"warning: {run.seq_gaps} device events were lost (seq gaps)", file=sys.stderr)
+    if run.first_error is not None:
+        print(
+            f"warning: the device sent {run.n_errors} errors during the session; the first: "
+            f"{run.first_error['code']}: {run.first_error['msg']}",
+            file=sys.stderr,
+        )
     if run.device is None:
         print("warning: no report from the device", file=sys.stderr)
     return 0 if run.finished and run.device is not None else 1

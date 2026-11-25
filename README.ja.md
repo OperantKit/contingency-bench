@@ -237,7 +237,7 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 
 VR・RR・VI・RI・VT・RT は乱数を使い、機器には乱数の元が無いので、式にシードが要ります。[ホスト判定と機器判定の比較](#ホスト判定と機器判定の比較)の例のように、スケジュールの前の行に `@algorithm("fleshler-hoffman", seed=7)` と書きます。一覧に無いスケジュール、シードの無い乱数のスケジュール、`--realtime` と `--decision device` の併用は、ポートを開く前に終了コード 2 で止まります。ファームウェアがスケジュールを断ったとき、機器が `load` や `start` に答えないときも終了コードは 2 です。どの場合も OKL のログは作られません。
 
-要約の JSON は、ホスト判定の要約から `realtime` を除いた同じキーを持ち、`decision` (`"device"`)・`firmware`・`session_start` (機器の時計)・`seq_gaps` (届かなかった機器の行の数) が加わります。`seq_gaps` が 0 でないときは標準エラーにも警告が出ますが、終了コードは変わりません。`host_minus_device_ms` は原点が違い、反応ごとの、ホストが `start` を送ってからの時間 − 機器の `started` からの時間です。ほかの終了コードは同じです。同じ実行は `contingency_bench.hil_device` の `run_device` でも使えます。
+要約の JSON は、ホスト判定の要約から `realtime` を除いた同じキーを持ち、`decision` (`"device"`)・`firmware`・`session_start` (機器の時計)・`seq_gaps` (届かなかった機器の行の数)・`n_errors` (セッション中に機器が送った `error` の行の数)・`first_error` (最初の 1 件の `code` と `msg`。無ければ `null`) が加わります。`seq_gaps` と `n_errors` が 0 でないときは標準エラーにも警告が出ますが、終了コードは変わりません。`start` への返事が `error` なら、標準エラーにその `code` と `msg` を出し、終了コード 2 で終わります。`host_minus_device_ms` は原点が違い、反応ごとの、ホストが `start` を送ってからの時間 − 機器の `started` からの時間です。ほかの終了コードは同じです。同じ実行は `contingency_bench.hil_device` の `run_device` でも使えます。
 
 ### 遅れの解析
 

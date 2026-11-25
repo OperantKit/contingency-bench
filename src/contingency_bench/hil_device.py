@@ -145,6 +145,8 @@ class DeviceRun:
     session_start: float | None = None
     host_minus_device_ms: list[float] = field(default_factory=list)
     device: dict[str, Any] | None = None
+    n_errors: int = 0
+    first_error: dict[str, Any] | None = None
 
 
 def run_device(
@@ -225,4 +227,6 @@ def run_device(
         session_start=run.session_start,
         host_minus_device_ms=run.host_minus_device_ms,
         device=run.device,
+        n_errors=run.n_errors,
+        first_error=run.first_error,
     )
