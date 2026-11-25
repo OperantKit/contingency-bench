@@ -10,7 +10,7 @@ contingency-bench measures how a large language model (LLM) chooses between two 
 
 ## Installation
 
-Python 3.11 or newer. contingency-bench is not on PyPI yet; install it from GitHub. Its dependencies, numpy and scipy, come from PyPI.
+Python 3.11 or newer. contingency-bench is not on PyPI yet; install it from GitHub. Its dependencies, numpy and scipy, come from PyPI. The `hil` extra also needs six OperantKit packages that are not on PyPI; [Host-side run](#host-side-run) shows how to install them from GitHub.
 
 ```bash
 pip install git+https://github.com/OperantKit/contingency-bench
@@ -126,8 +126,23 @@ The simulated subject does not respond while the feeder is on. The next response
 
 `contingency-bench-hil-crf` runs an OperantKit session against the board: the DSL expression is bridged to a contingency-py schedule, a session-runner `SessionRunner` writes the OKL log, and experiment-io `drive` reads responses and sends reinforcer commands over the serial port with the host's monotonic clock. It needs the `hil` extra (pyserial and the OperantKit packages; `drive` must accept `on_response`).
 
+The OperantKit packages are not on PyPI, so `pip install "contingency-bench[hil] @ git+…"` on its own fails with `No matching distribution found`. Give pip the GitHub address of all of them in one command. The package named `experiment-core` on PyPI is an unrelated project; the GitHub address is what keeps pip from looking there.
+
 ```bash
-pip install "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+pip install \
+    "session-recorder @ git+https://github.com/OperantKit/session-recorder" \
+    "experiment-core @ git+https://github.com/OperantKit/experiment-core" \
+    "contingency-dsl-py @ git+https://github.com/OperantKit/contingency-dsl-py" \
+    "contingency-py @ git+https://github.com/OperantKit/contingency-py" \
+    "experiment-io @ git+https://github.com/OperantKit/experiment-io" \
+    "session-runner @ git+https://github.com/OperantKit/session-runner" \
+    "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+pip check
+```
+
+`pip check` prints `No broken requirements found.` Then run a session:
+
+```bash
 contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 200 \
     --duration 0.05 --okl run.okl --summary host.json
 ```

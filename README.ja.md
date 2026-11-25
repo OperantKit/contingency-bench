@@ -10,7 +10,7 @@ contingency-bench は、大規模言語モデル (LLM) が並立変動時隔 (VI
 
 ## インストール
 
-Python 3.11 以上。contingency-bench はまだ PyPI に公開されていないので、GitHub から入れます。依存する numpy と scipy は PyPI から入ります。
+Python 3.11 以上。contingency-bench はまだ PyPI に公開されていないので、GitHub から入れます。依存する numpy と scipy は PyPI から入ります。`hil` の追加依存には、PyPI に無い OperantKit のパッケージが 6 つ要ります。GitHub から入れる手順は[ホスト側の実行](#ホスト側の実行)にあります。
 
 ```bash
 pip install git+https://github.com/OperantKit/contingency-bench
@@ -126,8 +126,23 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 
 `contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`hil` の追加依存 (pyserial と OperantKit のパッケージ。`drive` が `on_response` を受け付ける版) が要ります。
 
+OperantKit のパッケージは PyPI に無いので、`pip install "contingency-bench[hil] @ git+…"` だけでは `No matching distribution found` で失敗します。1 つのコマンドで、全部の GitHub の場所を pip に渡します。PyPI にある `experiment-core` という名前のパッケージは無関係のプロジェクトで、GitHub の場所を渡すと、pip はそちらを探しません。
+
 ```bash
-pip install "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+pip install \
+    "session-recorder @ git+https://github.com/OperantKit/session-recorder" \
+    "experiment-core @ git+https://github.com/OperantKit/experiment-core" \
+    "contingency-dsl-py @ git+https://github.com/OperantKit/contingency-dsl-py" \
+    "contingency-py @ git+https://github.com/OperantKit/contingency-py" \
+    "experiment-io @ git+https://github.com/OperantKit/experiment-io" \
+    "session-runner @ git+https://github.com/OperantKit/session-runner" \
+    "contingency-bench[hil] @ git+https://github.com/OperantKit/contingency-bench"
+pip check
+```
+
+`pip check` は `No broken requirements found.` と出します。続けてセッションを実行します。
+
+```bash
 contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 200 \
     --duration 0.05 --okl run.okl --summary host.json
 ```
