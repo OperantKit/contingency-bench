@@ -49,6 +49,7 @@ __all__ = [
     "DEVICE_CLOCK_TYPE",
     "SEEDED_ON_DEVICE",
     "SUPPORTED_ON_DEVICE",
+    "DeviceEnvironmentError",
     "DeviceRun",
     "DeviceUnsupportedError",
     "ProbeResult",
@@ -67,6 +68,23 @@ def _host_hint(dsl: str, reason: str) -> str:
     return (
         f'schedule "{dsl}" cannot run on the device ({reason}; supported: {supported}); '
         "run it on the host with --decision host"
+    )
+
+
+class DeviceEnvironmentError(ValueError):
+    """A module the device path needs is not importable; nothing was started.
+
+    The schedule may well run on the device: the installed packages are what
+    is missing or too old, so the message names the module, not the schedule.
+    """
+
+
+def _missing_module_hint(dsl: str, exc: ImportError) -> str:
+    module = exc.name or str(exc)
+    return (
+        f'cannot map schedule "{dsl}" for the device: module "{module}" is not importable '
+        f"({exc}). The installed contingency-py or contingency-dsl-py is missing or too old "
+        "for --decision device; this is not a problem with the schedule"
     )
 
 
@@ -103,6 +121,8 @@ def device_schedule(dsl: str) -> dict[str, Any]:
     """
     try:
         spec = _parse_spec(dsl)
+    except ImportError as exc:  # the environment, not the schedule
+        raise DeviceEnvironmentError(_missing_module_hint(dsl, exc)) from exc
     except Exception as exc:  # the parser's and to_spec's own errors carry the detail
         raise DeviceUnsupportedError(_host_hint(dsl, f"not mapped: {exc}")) from exc
     return device_schedule_from_spec(spec, dsl)

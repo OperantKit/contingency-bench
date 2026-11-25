@@ -12,6 +12,7 @@ answers ``probe`` without real time, and after ``start`` presses every
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -222,6 +223,43 @@ def test_device_decision_refused_stops_before_the_session(tmp_path, monkeypatch,
     assert dsl in err
     assert said in err
     assert "--decision host" in err
+    assert not okl.exists()
+    assert not any(c.get("cmd") == "start" for c in port.commands)
+
+
+_SPEC_MODULE = "contingency.bridge.spec"
+
+
+@pytest.mark.parametrize("dsl", ["CRF", "VI 30 s"])
+def test_a_missing_spec_module_is_not_called_a_schedule_the_device_cannot_run(monkeypatch, dsl):
+    monkeypatch.setitem(sys.modules, _SPEC_MODULE, None)
+
+    with pytest.raises(ValueError) as err:
+        device_schedule(dsl)
+
+    assert not isinstance(err.value, DeviceUnsupportedError)
+    msg = str(err.value)
+    assert "cannot run on the device" not in msg
+    assert _SPEC_MODULE in msg
+    assert "contingency-py" in msg
+
+
+def test_cli_reports_a_missing_spec_module_before_the_session(tmp_path, monkeypatch, capsys):
+    clock = ManualClock()
+    port = _FakeDevicePort(clock)
+    monkeypatch.setattr(hil_crf, "_open_serial", lambda path, baud: port)
+    monkeypatch.setattr(hil_crf, "_default_clock", lambda: clock)
+    monkeypatch.setitem(sys.modules, _SPEC_MODULE, None)
+    okl = tmp_path / "device.okl"
+
+    code = hil_crf.main(
+        ["--port", "/dev/fake", "--dsl", "CRF", "--decision", "device", "--okl", str(okl)]
+    )
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert _SPEC_MODULE in err
+    assert "cannot run on the device" not in err
     assert not okl.exists()
     assert not any(c.get("cmd") == "start" for c in port.commands)
 
