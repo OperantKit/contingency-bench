@@ -95,6 +95,16 @@ pio run              # ビルドのみ
 pio run -t upload    # ビルドして書き込む（teensy-cli）
 ```
 
+ボード上の強化の判定は `firmware/teensy41/rust/` の Rust の crate（bench-decide）が行います。この crate の試験はボード無しでパソコンの上で走ります。試験は `src/main.cpp` が使う C API（`bd_load`・`bd_step`・`bd_reset`・`bd_unload`・`bd_schedule_json`・`bd_error`）を、FR・FI・CRF・EXT・seed つきの VI の `load` 行と、壊れた行・断られる行で呼びます。
+
+```bash
+cd firmware/teensy41/rust
+cargo test                                                # パソコン上の試験
+cargo build --release --target thumbv7em-none-eabihf      # pio がリンクするライブラリ
+```
+
+パソコンの上の `cargo test` は、contingency-rs を機器用の `c-runtime`（C ライブラリのメモリ確保と panic の処理）でなく `std` で組みます。2 つのビルドは浮動小数の関数・ハッシュ・seed の無い乱数スケジュールの乱数源が違うので、試験で読み込む乱数のスケジュールには必ず seed を付けます。機器用のビルドには、cargo が使う toolchain にこの target が入っている必要があります（`rustup target add thumbv7em-none-eabihf`）。
+
 ### シリアルの取り決め
 
 USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります。

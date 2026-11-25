@@ -95,6 +95,16 @@ pio run              # build only
 pio run -t upload    # build and upload (teensy-cli)
 ```
 
+The reinforcement decisions on the board come from the Rust crate in `firmware/teensy41/rust/` (bench-decide). Its tests run on the computer, without the board: they call the C API that `src/main.cpp` uses (`bd_load`, `bd_step`, `bd_reset`, `bd_unload`, `bd_schedule_json`, `bd_error`) with FR, FI, CRF, EXT and seeded VI `load` lines, and with broken or refused ones.
+
+```bash
+cd firmware/teensy41/rust
+cargo test                                                # host tests
+cargo build --release --target thumbv7em-none-eabihf      # the library pio links
+```
+
+On the computer, `cargo test` builds contingency-rs with `std` instead of the device's `c-runtime` (allocator and panic handler from the C library). The two builds differ in the float functions, the hash and the random source of unseeded schedules, so the tests give every random schedule they load a seed. The device build needs the target in the toolchain cargo runs (`rustup target add thumbv7em-none-eabihf`).
+
 ### Serial protocol
 
 One JSON object per line, in both directions, over USB serial.

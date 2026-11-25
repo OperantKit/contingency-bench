@@ -10,13 +10,22 @@ description = "Schedule decisions for the contingency-bench Teensy firmware: bui
 crate-type = ["staticlib"]
 
 [dependencies]
-# no_std + alloc build of the schedule core. `c-runtime` brings the
-# global allocator (C malloc/memalign/free) and the panic handler
-# (abort), so this crate defines neither. The firmware build script
-# (firmware/teensy41/build_rust.py) points this at a local checkout
-# with CONTINGENCY_RS_DIR when one is given.
-contingency = { git = "https://github.com/OperantKit/contingency-rs", default-features = false, features = ["c-runtime"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+# On the device: the no_std + alloc build of the schedule core.
+# `c-runtime` brings the global allocator (C malloc/memalign/free) and
+# the panic handler (abort), so this crate defines neither. The firmware
+# build script (firmware/teensy41/build_rust.py) points this at a local
+# checkout with CONTINGENCY_RS_DIR when one is given.
+[target.'cfg(target_os = "none")'.dependencies]
+contingency = { git = "https://github.com/OperantKit/contingency-rs", default-features = false, features = ["c-runtime"] }
+
+# On the host (`cargo test`): the std build, so the tests link with the
+# host's std, allocator and panic handler. It differs from the device
+# build in the float functions, the hash and the random source of
+# unseeded schedules; the tests seed every random schedule they load.
+[target.'cfg(not(target_os = "none"))'.dependencies]
+contingency = { git = "https://github.com/OperantKit/contingency-rs", default-features = false, features = ["std"] }
 
 [profile.release]
 opt-level = "s"

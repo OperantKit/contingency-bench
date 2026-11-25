@@ -14,8 +14,12 @@
 //!
 //! The firmware is single-threaded and calls these from `loop()` only,
 //! so the state is one `static` touched by one caller at a time.
+//!
+//! `cargo test` builds this crate for the host with std (see
+//! `Cargo.toml`); the tests in `tests.rs` call the C API as the firmware
+//! does, one at a time.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
@@ -314,3 +318,6 @@ pub unsafe extern "C" fn bd_probe(line: *const c_char, len: usize, buf: *mut c_c
     }
     BD_OK
 }
+
+#[cfg(test)]
+mod tests;
