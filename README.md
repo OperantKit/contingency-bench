@@ -124,7 +124,7 @@ The simulated subject does not respond while the feeder is on. The next response
 
 ### Host-side run
 
-`contingency-bench-hil-crf` runs an OperantKit session against the board: the DSL expression is bridged to a contingency-py schedule, a session-runner `SessionRunner` writes the OKL log, and experiment-io `drive` reads responses and sends reinforcer commands over the serial port with the host's monotonic clock. It needs the `hil` extra (pyserial and the OperantKit packages; `drive` must accept `on_response`).
+`contingency-bench-hil-crf` runs an OperantKit session against the board. By default the host decides which responses are reinforced: the DSL expression is bridged to a contingency-py schedule, a session-runner `SessionRunner` writes the OKL log, and experiment-io `drive` reads responses and sends reinforcer commands over the serial port with the host's monotonic clock. With `--decision device` the Teensy decides instead ([below](#decisions-on-the-device)). Both need the `hil` extra (pyserial and the OperantKit packages).
 
 The OperantKit packages are not on PyPI, so `pip install "contingency-bench[hil] @ git+…"` on its own fails with `No matching distribution found`. Give pip the GitHub address of all of them in one command. The package named `experiment-core` on PyPI is an unrelated project; the GitHub address is what keeps pip from looking there.
 
@@ -149,16 +149,36 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 
 | Option | Meaning |
 |---|---|
+| `--port` | Serial port of the board (required) |
+| `--baud` | Baud rate (default 115200) |
 | `--dsl` | contingency-dsl expression (default `CRF`) |
+| `--decision` | Where the contingency is decided: `host` (default) or `device` ([below](#decisions-on-the-device)) |
 | `--reinforcers` | End the session after this many reinforcers (default 200) |
-| `--duration` | Reinforcer duration in seconds, sent in each reinforcer command (default 0.05) |
+| `--duration` | Reinforcer duration in seconds (default 0.05), sent in each reinforcer command, or once in `load` with `--decision device` |
 | `--okl` / `--summary` | Write the OKL log / the summary JSON |
 | `--max-duration` | Give up after this many seconds (default 600) |
-| `--realtime` | Run the host loop on a macOS time-constraint thread (experiment-io `time_constraint`, period = the 1 ms poll interval); the summary's `realtime` says whether it was applied |
+| `--report-timeout` | Wait this many seconds for the device's `report` after the session (default 5) |
+| `--realtime` | Run the host loop on a macOS time-constraint thread (experiment-io `time_constraint`, period = the 1 ms poll interval); the summary's `realtime` says whether it was applied. Not with `--decision device` |
 
-Before the session the device is stopped and the input buffer cleared; `sync` then starts the simulated subject. Session time is the host clock: each response is stamped when `drive` hands it to the session, and the device's own time is kept as a record. After the session the device is stopped again and its `report` fetched; `drive` closes the port, so it is opened once more for that. The summary JSON holds `finished`, `n_reinforcers`, `n_responses`, `elapsed_s`, `host_minus_device_ms` (receipt time minus the device's `ts` for each response; the two clocks are only joined by `sync`, so this is the transmission delay plus a fixed offset) and the device report under `"device"`, which `contingency-bench-hil-latency --device-report` reads. The command exits with 1 if the session did not reach the reinforcer count or the device did not report. The same run is available as `run_crf` in `contingency_bench.hil_crf`.
+With `--decision host`, the device is stopped before the session, switched back to the JSON lines (a Rust run leaves it in `proto rs`) and the input buffer cleared; `sync` then starts the simulated subject. Session time is the host clock: each response is stamped when `drive` hands it to the session, and the device's own time is kept as a record. After the session the device is stopped again and its `report` fetched; `drive` closes the port, so it is opened once more for that. The summary JSON holds `finished`, `n_reinforcers`, `n_responses`, `elapsed_s`, `host_minus_device_ms` (receipt time minus the device's `ts` for each response; the two clocks are only joined by `sync`, so this is the transmission delay plus a fixed offset) and the device report under `"device"`, which `contingency-bench-hil-latency --device-report` reads. The command exits with 1 if the session did not reach the reinforcer count or the device did not report, and with 2 on an error such as a port that cannot be opened. The same run is available as `run_crf` in `contingency_bench.hil_crf`.
 
 The same CRF session can be run from Rust with the `contingency-hil-serial` binary of contingency-rs (`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`). It switches the board with `proto rs`, runs a contingency-rs CRF through its serial backend, and writes a summary with the same keys; `host_minus_device_ms` is empty there.
+
+#### Decisions on the device
+
+With `--decision device` the schedule is sent to the board in a `load` command, and the firmware, which links contingency-rs, decides each response itself and turns the feeder on. The host only records what the device reports. Nothing switches between the two on its own.
+
+| | `--decision host` | `--decision device` |
+|---|---|---|
+| Who decides | contingency-py on the host; a reinforcer command goes to the board over USB | contingency-rs on the Teensy |
+| Times in the OKL log | The host's monotonic clock (header `clock_type = "monotonic"`) | The device's clock (`clock_type = "device"`); `session_start` is the time of the device's `started` |
+| `decision` in the OKL header | `"host"` | `"device"`, with the firmware's name in `device_firmware` |
+| Schedules | What contingency-py builds from the DSL expression | CRF, EXT, FR, VR, RR, FI, VI, RI, FT, VT, RT |
+| `lat_us` in the device report | From a response to the arrival of the reinforcer command | From a response to the feeder turning on, inside the Teensy. On FT, VT and RT a reinforcer does not depend on a response, so this is not a latency there |
+
+VR, RR, VI, RI, VT and RT draw random numbers and need a seed in the expression, because the device has no entropy source; write it as `@algorithm("fleshler-hoffman", seed=7)` on the line before the schedule, as in [Host vs device decisions](#host-vs-device-decisions). A schedule outside the list, a random one without a seed, and `--realtime` together with `--decision device` stop the command with exit code 2 before the port is opened. A schedule that the firmware itself refuses, or a device that does not answer `load` or `start`, also ends with exit code 2. In none of these cases is an OKL log created.
+
+The summary JSON has the same keys as a host run except `realtime`, and adds `decision` (`"device"`), `firmware`, `session_start` (device clock) and `seq_gaps`, the number of device lines that did not arrive; a warning on standard error repeats it when it is not 0, without changing the exit code. `host_minus_device_ms` has another origin here: for each response, the host time since it sent `start`, minus the device time since `started`. The other exit codes are the same. The same run is available as `run_device` in `contingency_bench.hil_device`.
 
 ### Latency analysis
 

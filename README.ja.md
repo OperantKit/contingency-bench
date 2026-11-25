@@ -124,7 +124,7 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 
 ### ホスト側の実行
 
-`contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`hil` の追加依存 (pyserial と OperantKit のパッケージ。`drive` が `on_response` を受け付ける版) が要ります。
+`contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。既定では、どの反応を強化するかをホストが判定します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`--decision device` を付けると、Teensy が判定します ([下記](#機器での判定))。どちらにも `hil` の追加依存 (pyserial と OperantKit のパッケージ) が要ります。
 
 OperantKit のパッケージは PyPI に無いので、`pip install "contingency-bench[hil] @ git+…"` だけでは `No matching distribution found` で失敗します。1 つのコマンドで、全部の GitHub の場所を pip に渡します。PyPI にある `experiment-core` という名前のパッケージは無関係のプロジェクトで、GitHub の場所を渡すと、pip はそちらを探しません。
 
@@ -149,16 +149,36 @@ contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --dsl CRF --reinforcers 20
 
 | オプション | 意味 |
 |---|---|
+| `--port` | 基板のシリアルポート (必須) |
+| `--baud` | ボーレート (既定 115200) |
 | `--dsl` | contingency-dsl の式 (既定 `CRF`) |
+| `--decision` | 随伴性を判定する場所。`host` (既定) か `device` ([下記](#機器での判定)) |
 | `--reinforcers` | この回数の強化子でセッションを終える (既定 200) |
-| `--duration` | 強化子の長さ (秒)。強化子の命令ごとに送る (既定 0.05) |
+| `--duration` | 強化子の長さ (秒、既定 0.05)。強化子の命令ごとに送る。`--decision device` では `load` で 1 回送る |
 | `--okl` / `--summary` | OKL のログ／要約の JSON を書く |
 | `--max-duration` | この秒数で打ち切る (既定 600) |
-| `--realtime` | ホストのループを macOS の時間制約スレッドで回す (experiment-io の `time_constraint`、周期 = 1 ms の poll 間隔)。適用できたかは要約の `realtime` に残る |
+| `--report-timeout` | セッションの後、機器の `report` をこの秒数まで待つ (既定 5) |
+| `--realtime` | ホストのループを macOS の時間制約スレッドで回す (experiment-io の `time_constraint`、周期 = 1 ms の poll 間隔)。適用できたかは要約の `realtime` に残る。`--decision device` とは併用できない |
 
-セッションの前に機器を止めて受信の溜まりを捨て、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms` (反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値) と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
+`--decision host` では、セッションの前に機器を止め、JSON の行に戻し (Rust で回すと `proto rs` のまま残ります)、受信の溜まりを捨ててから、`sync` で模擬の被験体を動かし始めます。セッションの時刻はホストの時計です。反応ごとに、`drive` がセッションに渡す瞬間の時刻を付け、機器の時刻は記録として残します。セッションの後、機器をもう一度止めて `report` を受け取ります。`drive` はポートを閉じるので、そのためにもう一度開きます。要約の JSON には `finished`・`n_reinforcers`・`n_responses`・`elapsed_s`・`host_minus_device_ms` (反応ごとの、受け取った時刻 − 機器の `ts`。2 つの時計は `sync` でしかつながっていないので、伝送の遅れに一定のずれが足された値) と、`"device"` の下に機器の report が入り、`contingency-bench-hil-latency --device-report` がそれを読みます。強化子の回数に届かなかったとき、または機器が report を返さなかったとき、終了コードは 1 です。ポートを開けないなどの誤りでは 2 です。同じ実行は `contingency_bench.hil_crf` の `run_crf` でも使えます。
 
 同じ CRF のセッションは、contingency-rs の `contingency-hil-serial` バイナリで Rust からも回せます (`cargo run --release --features serial --bin contingency-hil-serial -- --port /dev/cu.usbmodemXXXX --reinforcers 200 --duration 0.05 --summary host.json`)。`proto rs` で基板を切り替え、contingency-rs の CRF をシリアル接続で回し、同じキーの要約を書きます。こちらの `host_minus_device_ms` は空です。
+
+#### 機器での判定
+
+`--decision device` では、スケジュールを `load` の命令で基板に送り、contingency-rs を組み込んだファームウェアが反応ごとに判定して給餌器を ON にします。ホストは機器が伝えたことを記録するだけです。2 つの間を勝手に切り替えることはありません。
+
+| | `--decision host` | `--decision device` |
+|---|---|---|
+| 判定する側 | ホストの contingency-py。強化子の命令を USB で基板に送る | Teensy の contingency-rs |
+| OKL のログの時刻 | ホストの単調増加の時計 (ヘッダの `clock_type = "monotonic"`) | 機器の時計 (`clock_type = "device"`)。`session_start` は機器の `started` の時刻 |
+| OKL のヘッダの `decision` | `"host"` | `"device"`。ファームウェアの名前が `device_firmware` に入る |
+| スケジュール | DSL の式から contingency-py が組み立てられる物 | CRF・EXT・FR・VR・RR・FI・VI・RI・FT・VT・RT |
+| 機器の report の `lat_us` | 反応から強化子の命令が届くまで | 反応から給餌器が ON になるまで (Teensy の中)。FT・VT・RT の強化子は反応によらないので、遅れの値にならない |
+
+VR・RR・VI・RI・VT・RT は乱数を使い、機器には乱数の元が無いので、式にシードが要ります。[ホスト判定と機器判定の比較](#ホスト判定と機器判定の比較)の例のように、スケジュールの前の行に `@algorithm("fleshler-hoffman", seed=7)` と書きます。一覧に無いスケジュール、シードの無い乱数のスケジュール、`--realtime` と `--decision device` の併用は、ポートを開く前に終了コード 2 で止まります。ファームウェアがスケジュールを断ったとき、機器が `load` や `start` に答えないときも終了コードは 2 です。どの場合も OKL のログは作られません。
+
+要約の JSON は、ホスト判定の要約から `realtime` を除いた同じキーを持ち、`decision` (`"device"`)・`firmware`・`session_start` (機器の時計)・`seq_gaps` (届かなかった機器の行の数) が加わります。`seq_gaps` が 0 でないときは標準エラーにも警告が出ますが、終了コードは変わりません。`host_minus_device_ms` は原点が違い、反応ごとの、ホストが `start` を送ってからの時間 − 機器の `started` からの時間です。ほかの終了コードは同じです。同じ実行は `contingency_bench.hil_device` の `run_device` でも使えます。
 
 ### 遅れの解析
 
