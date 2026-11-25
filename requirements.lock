@@ -1,0 +1,12 @@
+# Constraints for pip install -c requirements.lock -e ".[test]" (pip freeze on Python 3.11, without OperantKit packages).
+coverage==7.17.5
+hypothesis==6.170.17
+iniconfig==2.3.1
+numpy==2.4.6
+packaging==26.4
+pluggy==1.7.0
+Pygments==2.21.0
+pytest==9.2.0
+pytest-cov==7.1.0
+scipy==1.17.1
+sortedcontainers==2.4.0
