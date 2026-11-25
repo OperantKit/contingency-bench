@@ -160,6 +160,33 @@ sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O v
 
 `--time` はミリ秒です。VCD を解析するパソコンに写します。`-o` を付けないと sigrok-cli は VCD を標準出力に書くので、ホストから SSH で動かし、ホスト側のファイルに出力を向けることもできます。その場合、アナライザのパソコンには何も書きません。
 
+### ホスト判定と機器判定の比較
+
+`contingency-bench-hil-diff` は、同じ式を `contingency-bench-hil-crf --decision host` と `--decision device` で 1 回ずつ回した OKL のログ 2 本を比べます。模擬の被験体は一定の周期で反応しますが、給餌器が出ている間は反応しません。反応の予定の時刻に給餌器の動作が重ならない限り、2 本は同じ反応列になります。このコマンドは、ホスト (contingency-py) と機器 (contingency-rs) が同じ反応を強化したかを反応ごとに確かめます。
+
+```bash
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --decision host \
+    --dsl '@algorithm("fleshler-hoffman", seed=7)
+VI 30s' --reinforcers 10 --okl host.okl --summary host.json
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --decision device \
+    --dsl '@algorithm("fleshler-hoffman", seed=7)
+VI 30s' --reinforcers 10 --okl device.okl --summary device.json
+contingency-bench-hil-diff host.okl device.okl --host-summary host.json
+```
+
+| 行 | 意味 |
+|---|---|
+| A 反応数／反応の時刻の差 | 反応の数と、反応の `id` ごとの、セッションの原点からの時刻の差 (ミリ秒)。差が `--threshold-ms` (既定 1) を越えた最初の反応、または片方のログにしか無い最初の反応を、食い違いの位置として出す |
+| B 判定の一致 | 食い違いの位置より前の反応のうち、2 本の判定 (強化／非強化) が一致した数と、一致しなかった反応の id |
+| C 強化子数 | `reinforcer_start` の行の数 |
+| D 強化の時刻の差 | 2 本とも強化した反応について、原点からの強化の時刻の差 (ホスト − 機器、ミリ秒)。件数・最小・中央値・p95・最大 |
+| E 反応から強化までの遅れ | 機器は OKL から出す。ホストは `--host-summary` の機器の `lat_us` を使う。ホストのログは反応と強化子に同じ時刻を付けるので、ログからは出ない |
+| F 強化子の長さ | `reinforcer_end − reinforcer_start` (ミリ秒) |
+
+2 本のログは時計も原点も違います。ホストのログの原点は `state_change IDLE RUNNING` の行 (`sync` で送った時刻) で、反応の時刻は `device_time` を使います。機器のログの原点はヘッダの `session_start` です。反応の後、次の反応の前に `reinforcer_start` の行があれば、その反応は強化されたと数えます。反応列が食い違った後の判定は、もう同じ入力に対する判定ではないので、B と D は食い違いの位置より前の反応だけで出します。FT・VT・RT では給餌器がいつでも動きうるので、ホストの数ミリ秒の遅れで次の反応の時刻が動くことがあり、その場合は、そこまでの判定が一致していても終了コードは 1 になります。強化子は直前の反応に付けるので、間に反応の無い 2 回の強化子は B では 1 回と数えます。D にはホストへの伝送と 2 つの時計の差が含まれ、給餌器のピンで測った値ではありません。p95 は補間せず、記録された値のどれかを返します。
+
+`--device-summary` を付けると、機器の E をその `lat_us` に置き換えます。`--json` で結果を JSON で出します。A・B・C のどれかが食い違うと終了コードは 1、1 本目が `decision = "host"` でない・2 本目が `decision = "device"` でない・2 本の `dsl` が違うときは 2 です。同じ比較は `contingency_bench.hil_diff` の `load_okl` と `compare` でも使えます。
+
 ### 既知の制約
 
 - **macOS は、新しくつながったアクセサリごとに接続の許可を求めます。** Teensy をつなぎ直すたび (書き込み中の再接続を含む) に「アクセサリの接続を許可しますか」が出ることがあり、許可されるまで書き込みは `Operation not permitted` や `Unable to open device` で失敗します。出ないようにするには、システム設定 → プライバシーとセキュリティ → アクセサリ → 「アクセサリの接続を許可」を「ロック解除時に自動的に許可」にします ([Apple のサポート記事](https://support.apple.com/en-us/102282))。

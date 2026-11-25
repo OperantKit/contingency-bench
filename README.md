@@ -160,6 +160,33 @@ sigrok-cli -d fx2lafw --config samplerate=1m --channels D0,D1 --time 100000 -O v
 
 `--time` is in milliseconds. Copy the VCD to the computer that runs the analysis. Without `-o`, sigrok-cli writes the VCD to standard output, so it can also be run over SSH from the host and redirected to a local file there; nothing is then written on the analyzer's computer.
 
+### Host vs device decisions
+
+`contingency-bench-hil-diff` compares two OKL logs of the same expression, one run with `contingency-bench-hil-crf --decision host` and one with `--decision device`. The simulated subject responds on a fixed period but not while the feeder is on, so both runs see the same response sequence as long as no feeder operation overlaps a scheduled response. The command checks response by response whether the host (contingency-py) and the device (contingency-rs) reinforced the same responses.
+
+```bash
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --decision host \
+    --dsl '@algorithm("fleshler-hoffman", seed=7)
+VI 30s' --reinforcers 10 --okl host.okl --summary host.json
+contingency-bench-hil-crf --port /dev/cu.usbmodemXXXX --decision device \
+    --dsl '@algorithm("fleshler-hoffman", seed=7)
+VI 30s' --reinforcers 10 --okl device.okl --summary device.json
+contingency-bench-hil-diff host.okl device.okl --host-summary host.json
+```
+
+| Row | Meaning |
+|---|---|
+| A responses / response time diff | Response counts, and for each response `id` the difference of its time from the session origin (ms). The first response whose difference exceeds `--threshold-ms` (default 1) or that exists in only one log is shown as the divergence |
+| B decision agreement | Responses before the divergence on which both logs agree (reinforced or not), and the response ids where they differ |
+| C reinforcers | Number of `reinforcer_start` rows |
+| D reinforcer time diff | For responses both logs reinforced, host − device reinforcer time from the origin (ms): count, minimum, median, p95, maximum |
+| E response to reinforcer | Device: from the OKL. Host: the device's `lat_us` from `--host-summary`; the host log stamps the response and the reinforcer with the same time, so it cannot be read from the log |
+| F reinforcer duration | `reinforcer_end − reinforcer_start` (ms) |
+
+The two logs have different clocks and origins. The host log's origin is its `state_change IDLE RUNNING` row (the time sent with `sync`), and a response's time is its `device_time`; the device log's origin is the header's `session_start`. A response is counted as reinforced when a `reinforcer_start` row follows it before the next response. Once the response sequences diverge, later decisions are no longer decisions on the same input, so B and D use only the responses before the divergence. On FT, VT and RT the feeder can operate at any moment, so the host's delay of a few milliseconds can move the response that follows, and the command then exits with 1 although the decisions before that point agree. Reinforcers are attached to the preceding response, so two reinforcers with no response between them count once in B. D includes the transmission to the host and the difference of the two clocks; it is not a measurement at the feeder pin. p95 is a recorded value, not interpolated.
+
+`--device-summary` replaces the device's E with its `lat_us`; `--json` prints the result as JSON. The command exits with 1 when A, B or C differ, and with 2 when the first log is not `decision = "host"`, the second is not `decision = "device"`, or their `dsl` differs. The same comparison is available as `load_okl` and `compare` in `contingency_bench.hil_diff`.
+
 ### Known constraints
 
 - **macOS asks to allow each new accessory connection.** Each time the Teensy is plugged in again (including the re-enumeration during an upload), macOS may show "Allow accessory to connect?". Until it is allowed, uploading fails with `Operation not permitted` or `Unable to open device`. To avoid the prompt, set System Settings → Privacy & Security → Accessories → "Allow accessories to connect" to "Automatically allow when unlocked" ([Apple Support](https://support.apple.com/en-us/102282)).

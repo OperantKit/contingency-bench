@@ -67,6 +67,7 @@ dev = [
 contingency-bench = "contingency_bench.cli:main"
 contingency-bench-hil-latency = "contingency_bench.hil_latency:main"
 contingency-bench-hil-crf = "contingency_bench.hil_crf:main"
+contingency-bench-hil-diff = "contingency_bench.hil_diff:main"
 
 [project.urls]
 Homepage = "https://github.com/OperantKit"
