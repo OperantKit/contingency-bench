@@ -10,6 +10,7 @@ from contingency_bench.benchmark import (
     run_benchmark,
     run_condition,
 )
+from contingency_bench.controls import RandomSubject
 from contingency_bench.llm_client import (
     APILLMClient,
     BaseLLMClient,
@@ -32,6 +33,7 @@ __all__ = [
     "MatchingParameters",
     "MockLLMClient",
     "PolicyCompressionAgent",
+    "RandomSubject",
     "equate_training_steps",
     "estimate_beta_from_sensitivity",
     "estimate_matching_parameters",
