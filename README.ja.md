@@ -122,6 +122,38 @@ USB シリアルの上で、両方向とも 1 行に JSON を 1 つ送ります�
 
 模擬の被験体は、給餌器が ON の間は反応しません。次の反応は前の反応の 300 ms 後です。
 
+#### 機器での判定の行
+
+Teensy が判定するセッション ([機器での判定](#機器での判定)) では、`sync` と `reinforcer` の代わりに次の命令を使います。
+
+| 命令 | 引数 | 応答 | 誤りの code |
+|---|---|---|---|
+| `{"cmd":"load",...}` | `"schedule":{"type":...,"params":{...}}` (必須)。例: `{"type":"VI","params":{"mean_interval":30,"seed":7}}`。`"reinforcer":{"op":0,"duration":<s>}`: 給餌器を ON にする長さ (無ければ 0.05)。`op` は読まない。`"stop_after":{"reinforcers":<n>,"seconds":<s>}`: n 回目の強化子の後に給餌器が OFF になったとき、または `s` 秒が過ぎて給餌器が OFF のときにセッションを終える。値が無ければその上限は無い | `{"kind":"loaded","schedule":{...},"firmware":<名前>}`。`schedule` は受け取った物、`firmware` は `contingency-bench-teensy41-contingency-rs` | `unsupported_schedule`・`missing_seed`・`bad_params`・`bad_request`。誤りの後は、スケジュールが読み込まれていない状態になる |
+| `{"cmd":"probe","now":<s>,"event":...}` | `now` (必須): この 1 手の時刻。`event`: 反応が無ければ `null`、あれば `{"operandum":"main","time":<s>}` | `{"kind":"outcome","reinforced":false}`、または `{"kind":"outcome","reinforced":true,"reinforcer":{"label":...,"magnitude":...,"time":<s>}}`。読み込んだスケジュールを、待たずに、給餌器も動かさずに 1 手進める。`load` と `start` の間で使う | `bad_state`・`bad_request`・`no_room` |
+| `{"cmd":"start"}` | なし | `{"kind":"started","ts":<s>,"seq":0}`。スケジュールを `load` の直後の状態に戻し、遅れの記録を消し、`proto rs` の後でもセッションの行を JSON にして、反応を始める | `bad_state` |
+| `{"cmd":"stop"}` | なし | 機器が判定するセッションの間は `{"kind":"stopped",...}` (下記)。それ以外では反応を止めるだけで、応答は無い。`stopped` の後、次のセッションにはもう一度 `load` が要る | なし |
+
+機器が判定するセッションの間、`reinforcer` の命令と `D` の行は `bad_state` で断られます。`report` は上の表と同じですが、`lat_us` は給餌器が ON になるまでの値です。
+
+| 機器からの行 | 意味 |
+|---|---|
+| `{"kind":"response","op":0,"ts":<s>,"seq":<n>,"reinforced":<bool>}` | 反応と、機器がそれを強化したか |
+| `{"kind":"reinforcer_start","op":0,"ts":<s>,"seq":<n>}` | 給餌器が ON になった。強化された反応の次に出る。FT・VT・RT では反応なしに出ることがある |
+| `{"kind":"reinforcer_end","op":0,"ts":<s>,"seq":<n>}` | 給餌器が OFF になった |
+| `{"kind":"stopped","ts":<s>,"seq":<n>,"n_responses":<n>,"n_reinforcers":<n>}` | `stop_after` か `stop` でセッションが終わった |
+| `{"kind":"error","code":<code>,"msg":<文>,"seq":<n>}` | 命令、または動いているスケジュールの 1 手が失敗した |
+
+`ts` は機器の時計の秒で、`start` では 0 に戻りません。`seq` は `started` で 0 になり、`started`・`response`・`reinforcer_start`・`reinforcer_end`・`stopped`・`error` の行ごとに 1 増えます。`loaded`・`outcome`・`report` には `seq` がありません。
+
+| 誤りの code | 原因 |
+|---|---|
+| `unsupported_schedule` | スケジュールの中の `type` が contingency-rs のスケジュールの型でない |
+| `missing_seed` | 乱数を使うスケジュールに `params.seed` が無い |
+| `bad_params` | スケジュールに `type` が無い、パラメータが足りない、または構築で断られる値がある |
+| `bad_request` | 行が JSON でない (1023 バイトより後ろは切り捨てられる)、`load` に `schedule` が無い、`probe` の `now` に数が無い、またはスケジュールの 1 手が失敗した (前の手より前の `now` など) |
+| `no_room` | `outcome` の行が機器の領域 (512 バイト) に入らない |
+| `bad_state` | スケジュールが読み込まれていない、またはセッションの間の `probe`、スケジュールが読み込まれていない `start`、機器が判定するセッションの間の強化子の命令 |
+
 ### ホスト側の実行
 
 `contingency-bench-hil-crf` は、基板に対して OperantKit のセッションを回します。既定では、どの反応を強化するかをホストが判定します。DSL の式を contingency-py のスケジュールに渡し、session-runner の `SessionRunner` が OKL のログを書き、experiment-io の `drive` がホストの単調増加の時計でシリアルポートから反応を読み、強化子の命令を送ります。`--decision device` を付けると、Teensy が判定します ([下記](#機器での判定))。どちらにも `hil` の追加依存 (pyserial と OperantKit のパッケージ) が要ります。

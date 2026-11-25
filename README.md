@@ -122,6 +122,38 @@ After `proto rs`, a response is the line `R 0` and the device takes `D <channel>
 
 The simulated subject does not respond while the feeder is on. The next response comes 300 ms after the previous one.
 
+#### Lines of a device decision
+
+A session decided on the Teensy ([Decisions on the device](#decisions-on-the-device)) uses these commands in place of `sync` and `reinforcer`:
+
+| Command | Arguments | Reply | Error codes |
+|---|---|---|---|
+| `{"cmd":"load",...}` | `"schedule":{"type":...,"params":{...}}` (required), e.g. `{"type":"VI","params":{"mean_interval":30,"seed":7}}`. `"reinforcer":{"op":0,"duration":<s>}`: how long the feeder is on (0.05 if missing); `op` is not read. `"stop_after":{"reinforcers":<n>,"seconds":<s>}`: end the session when the feeder goes off after the n-th reinforcer, or once `s` seconds have passed and the feeder is off; without a value there is no such limit | `{"kind":"loaded","schedule":{...},"firmware":<name>}`. `schedule` is the one received; `firmware` is `contingency-bench-teensy41-contingency-rs` | `unsupported_schedule`, `missing_seed`, `bad_params`, `bad_request`. After an error no schedule is loaded |
+| `{"cmd":"probe","now":<s>,"event":...}` | `now` (required): the time of the step. `event`: `null` for no response, or `{"operandum":"main","time":<s>}` | `{"kind":"outcome","reinforced":false}`, or `{"kind":"outcome","reinforced":true,"reinforcer":{"label":...,"magnitude":...,"time":<s>}}`. One step of the loaded schedule without waiting and without the feeder, between `load` and `start` | `bad_state`, `bad_request`, `no_room` |
+| `{"cmd":"start"}` | None | `{"kind":"started","ts":<s>,"seq":0}`. The schedule returns to its state right after `load`, the latency log is cleared, the session lines are JSON even after `proto rs`, and responding starts | `bad_state` |
+| `{"cmd":"stop"}` | None | `{"kind":"stopped",...}` (below) while a device session runs; otherwise it only stops responding and there is no reply. After `stopped`, the next session needs `load` again | None |
+
+While a device session runs, the `reinforcer` command and `D` lines are refused with `bad_state`. `report` works as above, except that `lat_us` is then measured to the feeder turning on.
+
+| Line from the device | Meaning |
+|---|---|
+| `{"kind":"response","op":0,"ts":<s>,"seq":<n>,"reinforced":<bool>}` | A response, and whether the device reinforced it |
+| `{"kind":"reinforcer_start","op":0,"ts":<s>,"seq":<n>}` | The feeder turned on. It follows the reinforced response; on FT, VT and RT it can come without one |
+| `{"kind":"reinforcer_end","op":0,"ts":<s>,"seq":<n>}` | The feeder turned off |
+| `{"kind":"stopped","ts":<s>,"seq":<n>,"n_responses":<n>,"n_reinforcers":<n>}` | The session ended, by `stop_after` or by `stop` |
+| `{"kind":"error","code":<code>,"msg":<text>,"seq":<n>}` | A command, or a step of the running schedule, failed |
+
+`ts` is the device's clock in seconds, which `start` does not reset. `seq` is 0 at `started` and goes up by 1 with each line of the kinds `started`, `response`, `reinforcer_start`, `reinforcer_end`, `stopped` and `error`; `loaded`, `outcome` and `report` carry none.
+
+| Error code | Cause |
+|---|---|
+| `unsupported_schedule` | A `type` in the schedule is not a contingency-rs schedule type |
+| `missing_seed` | A schedule that draws random numbers has no `params.seed` |
+| `bad_params` | The schedule has no `type`, lacks a parameter, or has a value its constructor rejects |
+| `bad_request` | The line is not JSON (a line is cut off after 1023 bytes), `load` has no `schedule`, `probe` has no number in `now`, or a step of the schedule failed (e.g. `now` is before the previous step) |
+| `no_room` | The `outcome` line does not fit in the device's buffer (512 bytes) |
+| `bad_state` | `probe` without a loaded schedule or during a session, `start` without a loaded schedule, or a reinforcer command during a device session |
+
 ### Host-side run
 
 `contingency-bench-hil-crf` runs an OperantKit session against the board. By default the host decides which responses are reinforced: the DSL expression is bridged to a contingency-py schedule, a session-runner `SessionRunner` writes the OKL log, and experiment-io `drive` reads responses and sends reinforcer commands over the serial port with the host's monotonic clock. With `--decision device` the Teensy decides instead ([below](#decisions-on-the-device)). Both need the `hil` extra (pyserial and the OperantKit packages).
