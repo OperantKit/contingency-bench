@@ -150,7 +150,13 @@ contingency-bench-hil-latency run.vcd --device-report report.json --expected-wid
 | `--response-signal` / `--feeder-signal` | sigrok signal names (default `D1` / `D0`, which are analyzer CH2 / CH1) |
 | `--json` | Print the summary and the per-response values as JSON |
 
-The command exits with 1 when there is a warning: a response marker with no feeder edge before the next response, a feeder width that differs from the command, or a device report whose length differs from the number of response markers. A wrong feeder width is more often the firmware's timing of the pulse end than the wiring; check the firmware output first. The same analysis is available as `parse_vcd` and `analyze` in `contingency_bench.hil_latency`.
+p95 and p99 are printed with a 95% confidence interval (`p95 95% CI`; `p95_ci` / `p99_ci` in the JSON). Both ends are recorded values: the j-th and the k-th smallest of the n values, with ranks that satisfy B(k − 1) − B(j − 1) ≥ 0.95, where B is the CDF of the binomial distribution with n trials and probability 0.95 or 0.99 (Le Boudec, 2010, Theorem 2.1). No shape is assumed for the distribution. The ranks leave at most 2.5% on each side; when n is too small for that on the upper side, the upper end is the maximum and the lower end takes the rest of the 5%. Because ranks are whole numbers, the level the ranks give (`coverage` in the JSON) is usually above 0.95.
+
+An interval exists only from 59 values for p95 and from 299 values for p99. With fewer, the interval is `-` (`null` in the JSON), and a warning on standard error and in `interval_warnings` gives the number needed. This warning does not change the exit code. A run of 200 reinforcers therefore has an interval for p95 and none for p99.
+
+How to read it: if the latencies are independent draws from one distribution, at least 95% of the intervals computed this way contain that distribution's p95 (or p99). The interval does not cover latencies that depend on the ones before them (the command does not test for this), and it describes one run: differences between runs, computers or boards are not in it.
+
+The command exits with 1 when there is a warning about the run: a response marker with no feeder edge before the next response, a feeder width that differs from the command, or a device report whose length differs from the number of response markers. A wrong feeder width is more often the firmware's timing of the pulse end than the wiring; check the firmware output first. The same analysis is available as `parse_vcd` and `analyze` in `contingency_bench.hil_latency`.
 
 The analyzer can be on another computer (sigrok-cli also runs on Windows). Start recording CH1 and CH2 a few seconds before the session and record a little longer than it lasts (a CRF session of 200 reinforcers of 0.05 s takes about 60 s):
 
@@ -268,6 +274,7 @@ Every `python` block in both READMEs is run by `tests/test_readme_examples.py`.
 - Baum, W. M. (1974). On two types of deviation from the matching law: Bias and undermatching. *Journal of the Experimental Analysis of Behavior, 22*(1), 231–242. https://doi.org/10.1901/jeab.1974.22-231
 - Davison, M. (2021). Concurrent schedules: How responses per reinforcer affects estimates of sensitivity to reinforcement. *Journal of the Experimental Analysis of Behavior, 116*(1), 114–123. https://doi.org/10.1002/jeab.694
 - Lai, L., & Gershman, S. J. (2021). Policy compression: An information bottleneck in action selection. *Psychology of Learning and Motivation, 74*, 195–232. https://doi.org/10.1016/bs.plm.2021.02.004
+- Le Boudec, J.-Y. (2010). *Performance evaluation of computer and communication systems*. EPFL Press. https://infoscience.epfl.ch/record/146812
 - Rescorla, R. A., & Wagner, A. R. (1972). A theory of Pavlovian conditioning: Variations in the effectiveness of reinforcement and nonreinforcement. In A. H. Black & W. F. Prokasy (Eds.), *Classical conditioning II: Current research and theory* (pp. 64–99). Appleton-Century-Crofts.
 
 ## License

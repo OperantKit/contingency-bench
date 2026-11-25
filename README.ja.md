@@ -150,7 +150,13 @@ contingency-bench-hil-latency run.vcd --device-report report.json --expected-wid
 | `--response-signal` / `--feeder-signal` | sigrok の信号名 (既定 `D1` / `D0`。アナライザの CH2 / CH1) |
 | `--json` | 要約と反応ごとの値を JSON で出す |
 
-警告があると終了コードは 1 です。警告は、次の反応までに給餌器の立ち上がりが無い反応の目印、命令と違う給餌器の幅、反応の目印の数と長さが違う機器の report の 3 つです。給餌器の幅の誤りは、配線よりもファームウェアのパルスの終わりの計時が原因であることが多いので、まずファームウェアの出力を確かめてください。同じ解析は `contingency_bench.hil_latency` の `parse_vcd` と `analyze` でも使えます。
+p95 と p99 には 95 % の信頼区間を付けます (表の `p95 95% CI`、JSON の `p95_ci` と `p99_ci`)。区間の両端は記録された値で、n 個の値のうち j 番目と k 番目に小さい値です。順位 j と k は B(k − 1) − B(j − 1) ≥ 0.95 を満たすように選びます。B は、試行 n 回・確率 0.95 または 0.99 の二項分布の累積分布関数です (Le Boudec, 2010, 定理 2.1)。分布の形は仮定しません。順位は、外れる確率が両側とも 2.5 % 以下になるように選びます。n が小さくて上側でそれができないときは、上端を最大値にし、5 % の残りを下側に回します。順位は整数なので、選んだ順位で決まる水準 (JSON の `coverage`) は、たいてい 0.95 より大きくなります。
+
+区間が出るのは、p95 で 59 個以上、p99 で 299 個以上のときです。足りないときは区間を出さず (表は `-`、JSON は `null`)、要る個数を標準エラー出力と `interval_warnings` の警告で示します。この警告は終了コードを変えません。したがって強化子 200 回の実行では、p95 に区間が付き、p99 には付きません。
+
+読み方: 遅れが 1 つの分布から互いに独立に出た値なら、この方法で作った区間の 95 % 以上が、その分布の p95 (または p99) を含みます。前の遅れに左右される遅れの列では成り立ちません (このコマンドは独立かどうかを検査しません)。また、区間は 1 回の実行についてのもので、実行・パソコン・基板による違いは含みません。
+
+実行についての警告があると終了コードは 1 です。警告は、次の反応までに給餌器の立ち上がりが無い反応の目印、命令と違う給餌器の幅、反応の目印の数と長さが違う機器の report の 3 つです。給餌器の幅の誤りは、配線よりもファームウェアのパルスの終わりの計時が原因であることが多いので、まずファームウェアの出力を確かめてください。同じ解析は `contingency_bench.hil_latency` の `parse_vcd` と `analyze` でも使えます。
 
 アナライザは別のパソコンにつないでかまいません (sigrok-cli は Windows でも動きます)。CH1 と CH2 の記録はセッションの数秒前に始め、セッションより少し長く取ります (0.05 秒の強化子 200 回の CRF は約 60 秒)。
 
@@ -266,6 +272,7 @@ python -m venv .venv
 - Baum, W. M. (1974). On two types of deviation from the matching law: Bias and undermatching. *Journal of the Experimental Analysis of Behavior, 22*(1), 231–242. https://doi.org/10.1901/jeab.1974.22-231
 - Davison, M. (2021). Concurrent schedules: How responses per reinforcer affects estimates of sensitivity to reinforcement. *Journal of the Experimental Analysis of Behavior, 116*(1), 114–123. https://doi.org/10.1002/jeab.694
 - Lai, L., & Gershman, S. J. (2021). Policy compression: An information bottleneck in action selection. *Psychology of Learning and Motivation, 74*, 195–232. https://doi.org/10.1016/bs.plm.2021.02.004
+- Le Boudec, J.-Y. (2010). *Performance evaluation of computer and communication systems*. EPFL Press. https://infoscience.epfl.ch/record/146812
 - Rescorla, R. A., & Wagner, A. R. (1972). A theory of Pavlovian conditioning: Variations in the effectiveness of reinforcement and nonreinforcement. In A. H. Black & W. F. Prokasy (Eds.), *Classical conditioning II: Current research and theory* (pp. 64–99). Appleton-Century-Crofts.
 
 ## ライセンス

@@ -8,6 +8,11 @@ maximum and count of these latencies, compares them one by one with the
 latencies the device measured itself (its ``report``), and checks every feeder
 pulse width against the commanded reinforcer duration.
 
+p95 and p99 come with a distribution-free confidence interval: two of the
+recorded values, chosen by rank from the binomial distribution. With too few
+values for the confidence level there is no interval, and a warning says so.
+The interval assumes independent, identically distributed values.
+
 The VCD is the format written by ``sigrok-cli -O vcd``. The time unit is read
 from ``$timescale`` (sigrok writes ``1 us`` at 1 MHz and ``10 ns`` at 4 MHz),
 so recordings at different sample rates give latencies in the same unit.
@@ -27,11 +32,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import binom
 
+DEFAULT_CONFIDENCE = 0.95
 DEFAULT_FEEDER_SIGNAL = "D0"
 DEFAULT_RESPONSE_SIGNAL = "D1"
 DEFAULT_WIDTH_TOLERANCE_S = 1e-4
 _EXAMPLES_IN_WARNING = 3
+_LATENCY_ROW = "response -> feeder"
+_WIDTH_ROW = "feeder pulse width"
+_DIFF_ROW = "analyzer - device report"
 
 _UNIT_SECONDS = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9, "ps": 1e-12, "fs": 1e-15}
 _TIMESCALE = re.compile(r"\$timescale\s+(\d+)\s*([munpf]?s)\s+\$end", re.DOTALL)
@@ -53,9 +63,26 @@ class Vcd:
 
 
 @dataclass(frozen=True)
+class QuantileInterval:
+    """Confidence interval of a quantile between two order statistics.
+
+    ``level`` is the requested confidence level; ``coverage`` is the one the
+    ranks give (never below ``level``). Ranks count from 1.
+    """
+
+    lower: float
+    upper: float
+    level: float
+    coverage: float
+    lower_rank: int
+    upper_rank: int
+
+
+@dataclass(frozen=True)
 class Stats:
     """Summary of a sample. ``p95`` / ``p99`` are recorded values (numpy's
-    ``higher`` method), so a tail is never interpolated below an observation."""
+    ``higher`` method), so a tail is never interpolated below an observation.
+    ``p95_ci`` / ``p99_ci`` are ``None`` when the sample is too small."""
 
     count: int
     median: float
@@ -63,6 +90,8 @@ class Stats:
     p99: float
     minimum: float
     maximum: float
+    p95_ci: QuantileInterval | None = None
+    p99_ci: QuantileInterval | None = None
 
 
 @dataclass(frozen=True)
@@ -77,6 +106,8 @@ class LatencyAnalysis:
 
     ``latencies_us`` and ``device_diff_us`` have one entry per response marker
     (``None`` when that response has no feeder edge or no device value).
+    ``interval_warnings`` lists the quantiles without a confidence interval; it
+    is separate from ``warnings``, which are about the run itself.
     """
 
     n_responses: int
@@ -88,6 +119,7 @@ class LatencyAnalysis:
     device_diff_us: list[float | None]
     device_diff_stats_us: Stats | None
     warnings: list[str] = field(default_factory=list)
+    interval_warnings: list[str] = field(default_factory=list)
 
     @property
     def n_latencies(self) -> int:
@@ -163,6 +195,77 @@ def load_device_report(path: Path) -> list[float]:
     return [float(v) for v in report["lat_us"]]
 
 
+def _check_probabilities(p: float, level: float) -> None:
+    if not (0 < p < 1 and 0 < level < 1):
+        raise ValueError(f"p and level must be between 0 and 1, got {p} and {level}")
+
+
+def min_sample_size(p: float, level: float = DEFAULT_CONFIDENCE) -> int:
+    """Smallest sample for which :func:`quantile_interval` exists.
+
+    The widest interval, from the minimum to the maximum, misses the quantile
+    with probability ``p**n + (1 - p)**n``.
+    """
+    _check_probabilities(p, level)
+    n = 2
+    while p**n + (1 - p) ** n > 1 - level:
+        n += 1
+    return n
+
+
+def quantile_interval(
+    values: Sequence[float], p: float, level: float = DEFAULT_CONFIDENCE
+) -> QuantileInterval | None:
+    """Distribution-free confidence interval of the ``p``-quantile.
+
+    The interval runs from the j-th to the k-th smallest value, where
+    ``B(k - 1) - B(j - 1) >= level`` and ``B`` is the Binomial(n, p) CDF
+    (Le Boudec, 2010, Theorem 2.1). The ranks leave at most ``(1 - level) / 2``
+    on each side. When the sample is too small for that on one side, that end is
+    the minimum or maximum and the other end takes the remaining error. ``None``
+    when no pair of ranks reaches ``level``.
+    """
+    n = len(values)
+    if n < min_sample_size(p, level):
+        return None
+    cdf = binom.cdf(np.arange(n), n, p)
+    tail = (1 - level) / 2
+    j = int(np.searchsorted(cdf, tail, side="right"))
+    k = int(np.searchsorted(cdf, 1 - tail, side="left")) + 1
+    if k > n:
+        k = n
+        j = int(np.searchsorted(cdf, cdf[n - 1] - level, side="right"))
+    elif j < 1:
+        j = 1
+        k = int(np.searchsorted(cdf, cdf[0] + level, side="left")) + 1
+    ordered = np.sort(np.asarray(values, dtype=float))
+    return QuantileInterval(
+        lower=float(ordered[j - 1]),
+        upper=float(ordered[k - 1]),
+        level=level,
+        coverage=float(cdf[k - 1] - cdf[j - 1]),
+        lower_rank=j,
+        upper_rank=k,
+    )
+
+
+def _interval_warnings(rows: Sequence[tuple[str, Stats | None]]) -> list[str]:
+    """One warning per quantile, naming the rows whose sample is too small for it."""
+    out: list[str] = []
+    for name, p in (("p95", 0.95), ("p99", 0.99)):
+        short = [
+            f"{label} n={stats.count}"
+            for label, stats in rows
+            if stats is not None and getattr(stats, f"{name}_ci") is None
+        ]
+        if short:
+            out.append(
+                f"no {DEFAULT_CONFIDENCE:.0%} confidence interval for {name}: it needs at least "
+                f"{min_sample_size(p)} values ({', '.join(short)})"
+            )
+    return out
+
+
 def _stats(values: Sequence[float]) -> Stats | None:
     if not values:
         return None
@@ -174,6 +277,8 @@ def _stats(values: Sequence[float]) -> Stats | None:
         p99=float(np.percentile(arr, 99, method="higher")),
         minimum=float(arr.min()),
         maximum=float(arr.max()),
+        p95_ci=quantile_interval(values, 0.95),
+        p99_ci=quantile_interval(values, 0.99),
     )
 
 
@@ -257,40 +362,56 @@ def analyze(
             if lat is not None:
                 diffs[i] = lat - float(dev)
 
+    latency_stats = _stats([v for v in latencies if v is not None])
+    width_stats = _stats([w for _, w in widths])
+    diff_stats = _stats([d for d in diffs if d is not None])
     return LatencyAnalysis(
         n_responses=len(responses),
         latencies_us=latencies,
-        latency_stats_us=_stats([v for v in latencies if v is not None]),
+        latency_stats_us=latency_stats,
         n_feeder_pulses=len(feeder_pulses),
-        width_stats_us=_stats([w for _, w in widths]),
+        width_stats_us=width_stats,
         width_mismatches=mismatches,
         device_diff_us=diffs,
-        device_diff_stats_us=_stats([d for d in diffs if d is not None]),
+        device_diff_stats_us=diff_stats,
         warnings=warnings,
+        interval_warnings=_interval_warnings(
+            [(_LATENCY_ROW, latency_stats), (_WIDTH_ROW, width_stats), (_DIFF_ROW, diff_stats)]
+        ),
     )
+
+
+def _format_interval(interval: QuantileInterval | None) -> str:
+    if interval is None:
+        return f"{'-':>22}"
+    return f"{f'[{interval.lower:.1f}, {interval.upper:.1f}]':>22}"
 
 
 def _format_row(label: str, stats: Stats | None) -> str:
     if stats is None:
         return f"{label:<28} {'-':>8}"
     return (
-        f"{label:<28} {stats.count:>8} {stats.median:>12.1f} {stats.p95:>12.1f} "
-        f"{stats.p99:>12.1f} {stats.minimum:>12.1f} {stats.maximum:>12.1f}"
+        f"{label:<28} {stats.count:>8} {stats.median:>12.1f} "
+        f"{stats.p95:>12.1f} {_format_interval(stats.p95_ci)} "
+        f"{stats.p99:>12.1f} {_format_interval(stats.p99_ci)} "
+        f"{stats.minimum:>12.1f} {stats.maximum:>12.1f}"
     )
 
 
 def format_table(result: LatencyAnalysis) -> str:
     """Plain-text table of the analysis (times in microseconds)."""
+    ci = f"{DEFAULT_CONFIDENCE:.0%} CI"
     head = (
-        f"{'(us)':<28} {'count':>8} {'median':>12} {'p95':>12} {'p99':>12} {'min':>12} {'max':>12}"
+        f"{'(us)':<28} {'count':>8} {'median':>12} {'p95':>12} {f'p95 {ci}':>22} "
+        f"{'p99':>12} {f'p99 {ci}':>22} {'min':>12} {'max':>12}"
     )
     lines = [
         f"response markers: {result.n_responses}, with feeder edge: {result.n_latencies}, "
         f"feeder pulses: {result.n_feeder_pulses}",
         head,
-        _format_row("response -> feeder", result.latency_stats_us),
-        _format_row("feeder pulse width", result.width_stats_us),
-        _format_row("analyzer - device report", result.device_diff_stats_us),
+        _format_row(_LATENCY_ROW, result.latency_stats_us),
+        _format_row(_WIDTH_ROW, result.width_stats_us),
+        _format_row(_DIFF_ROW, result.device_diff_stats_us),
     ]
     return "\n".join(lines)
 
@@ -298,7 +419,7 @@ def format_table(result: LatencyAnalysis) -> str:
 def to_json(result: LatencyAnalysis) -> dict[str, object]:
     """JSON-serialisable summary (per-response values included)."""
 
-    def stats(s: Stats | None) -> dict[str, float] | None:
+    def stats(s: Stats | None) -> dict[str, object] | None:
         return None if s is None else asdict(s)
 
     return {
@@ -312,11 +433,12 @@ def to_json(result: LatencyAnalysis) -> dict[str, object]:
         "device_diffs_us": result.device_diff_us,
         "width_mismatches": [asdict(m) for m in result.width_mismatches],
         "warnings": result.warnings,
+        "interval_warnings": result.interval_warnings,
     }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI: print the latency table; exit 1 when there are warnings."""
+    """CLI: print the latency table; exit 1 when there are warnings about the run."""
     parser = argparse.ArgumentParser(
         prog="contingency-bench-hil-latency",
         description="Response-to-feeder latency table from a sigrok VCD recording.",
@@ -358,7 +480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     print(json.dumps(to_json(result)) if args.json else format_table(result))
-    for warning in result.warnings:
+    for warning in [*result.warnings, *result.interval_warnings]:
         print(f"warning: {warning}", file=sys.stderr)
     return 1 if result.warnings else 0
 
