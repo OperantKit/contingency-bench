@@ -256,14 +256,33 @@ def run_crf(
     )
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    """CLI: run the session, write the summary JSON; exit 1 if it did not finish."""
+def _decision_help() -> str:
+    """Help of ``--decision``, with the schedules read from the device's own table."""
+    try:
+        from contingency_bench.hil_device import SEEDED_ON_DEVICE, SUPPORTED_ON_DEVICE
+    except ImportError:  # --help works without the hil extra
+        schedules = "install the hil extra to see the schedules the device decides"
+    else:
+        schedules = (
+            f"{', '.join(SUPPORTED_ON_DEVICE)}; of these, {', '.join(SEEDED_ON_DEVICE)} "
+            "need a seed in the DSL"
+        )
+    return (
+        "Where the contingency is decided: on the host (default) or on the device "
+        f"({schedules}). With device, any other schedule stops before the session with "
+        "exit code 2. device cannot be combined with --realtime."
+    )
+
+
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="contingency-bench-hil-crf",
         description="Run an OperantKit session against the Teensy fake chamber over serial.",
     )
     parser.add_argument("--port", required=True, help="Serial port, e.g. /dev/cu.usbmodem…")
-    parser.add_argument("--baud", type=int, default=DEFAULT_BAUD)
+    parser.add_argument(
+        "--baud", type=int, default=DEFAULT_BAUD, help="Serial baud rate (default: %(default)s)."
+    )
     parser.add_argument("--dsl", default="CRF", help="contingency-dsl expression.")
     parser.add_argument("--reinforcers", type=int, default=200, help="Stop after this many.")
     parser.add_argument(
@@ -274,8 +293,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--okl", type=Path, help="Write the session's OKL log here.")
     parser.add_argument("--summary", type=Path, help="Write the summary JSON here.")
-    parser.add_argument("--max-duration", type=float, default=DEFAULT_MAX_DURATION_S)
-    parser.add_argument("--report-timeout", type=float, default=DEFAULT_REPORT_TIMEOUT_S)
+    parser.add_argument(
+        "--max-duration",
+        type=float,
+        default=DEFAULT_MAX_DURATION_S,
+        help="Stop the session after this many seconds even if --reinforcers is not reached; "
+        "the run then exits with code 1 (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--report-timeout",
+        type=float,
+        default=DEFAULT_REPORT_TIMEOUT_S,
+        help="Wait this many seconds for the device's report after the session; "
+        "without a report the run exits with code 1 (default: %(default)s).",
+    )
     parser.add_argument(
         "--realtime",
         action="store_true",
@@ -285,10 +316,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--decision",
         choices=("host", "device"),
         default="host",
-        help="Where the contingency is decided: on the host (default) or on the device "
-        "(CRF and FR only; anything else stops before the session with exit code 2).",
+        help=_decision_help(),
     )
-    args = parser.parse_args(argv)
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI: run the session, write the summary JSON; exit 1 if it did not finish."""
+    args = _build_parser().parse_args(argv)
 
     if args.decision == "device":
         return _main_device(args)
